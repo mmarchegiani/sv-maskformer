@@ -21,8 +21,19 @@ git config user.email "your.email@cern.ch"
 
 In this way, the commits pushed to your repository will be linked to your CERN account identity.
 
+## Installation
+TBC.
+
 ## Training
 Example of how to run a training:
 ```bash
 python src/scripts/train/train_taus_integrated_noise.py --root /eos/user/m/mmarcheg/ml4reco/data/train
 ```
+
+## Evaluation
+TBC.
+
+## Validation plots
+TBC.
+
+
