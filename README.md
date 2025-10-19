@@ -22,12 +22,28 @@ git config user.email "your.email@cern.ch"
 In this way, the commits pushed to your repository will be linked to your CERN account identity.
 
 ## Installation
-TBC.
+Activate the `cmsml:3.11` singularity image:
+```bash
+alias cmsml311='apptainer shell -B /afs -B /eos -B /eos/user/m/mmarcheg -B /eos/home-m/mmarcheg -B /afs/cern.ch/work/m/mmarcheg \
+        -B /etc/sysconfig/ngbauth-submit -B ${XDG_RUNTIME_DIR} \
+        --env KRB5CCNAME="FILE:${XDG_RUNTIME_DIR}/krb5cc" --nv /cvmfs/unpacked.cern.ch/registry.hub.docker.com/cmsml/cmsml:3.11 --bind /usr/local/cuda-12.4:/usr/local/cuda-12.4'
+```
+Create a Python virtual environment within the singularity container and activate the environment:
+```
+python -m venv --system-site-packages myenv
+source myenv/bin/activate
+```
+
+Install the package in editable mode (`-e`), then install the optional libraries for `pytorch_geometric` with python wheels:
+```
+pip install -e .
+pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.6.0+cu124.html
+```
 
 ## Training
 Example of how to run a training:
 ```bash
-python src/scripts/train/train_taus_integrated_noise.py --root /eos/user/m/mmarcheg/ml4reco/data/train
+python src/scripts/train/train_taus_integrated_noise.py --root /eos/user/m/mmarcheg/ml4reco/data/taus_2025
 ```
 
 ## Evaluation
