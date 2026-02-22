@@ -4,31 +4,46 @@ Repository for HGCAL offline reconstruction using machine learning techniques. T
 A set of scripts to analyze the output and plot the clustering space is also included.
 
 ## Installation
+
+### Quick Start (Recommended)
+
+The package can be installed directly via pip:
+
+```bash
+# For standard installation
+pip install -e .
+
+# For development installation with additional tools
+pip install -e ".[dev]"
+```
+
+### Detailed Installation with Docker/Singularity
+
 The following installation instructions are taken from the README of the [pytorch_cmspepr](https://github.com/cms-pepr/pytorch_cmspepr) repository to install an environment based on CUDA 11.7 and Pytorch 2.0.
 
 Pull and run docker container:
-```
+```bash
 singularity pull docker://pytorch/pytorch:2.0.0-cuda11.7-cudnn8-devel
 singularity run --nv pytorch_2.0.0-cuda11.7-cudnn8-devel.sif
 ```
 
-Create a Python virtual environment within the docker container, activate the environment and install the required packages:
-```
+Create a Python virtual environment within the docker container, activate the environment and install the package:
+```bash
 export PYTHONPATH="/opt/conda/lib/python3.10/site-packages"
 python -m venv env
 source env/bin/activate
-pip install tqdm
-pip install torch_geometric
-pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.0.0+cu117.html # Make sure to pick the right torch and CUDA versions here
+
+# Install this package in editable mode
+pip install -e .
+
+# Install PyTorch Geometric extensions
+pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.0.0+cu117.html
+
+# Optionally install pytorch_cmspepr
 git clone git@github.com:cms-pepr/pytorch_cmspepr.git
 cd pytorch_cmspepr
 pip install -e .
-```
-
-Now install the code of this repository with:
-```
 cd ..
-pip install -e .
 ```
 
 Now you are all setup and ready to run the first training.
