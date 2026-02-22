@@ -88,3 +88,13 @@ git clone git@github.com:tklijnsma/pytorch_cmspepr.git
 cd pytorch_cmspepr
 pip install -e .
 ```
+
+## Installation for maskformer training
+Follow the installation instructions of the [hepattn](https://github.com/samvanstroud/hepattn/tree/main) repository. In particular, follow the [Setup](https://github.com/samvanstroud/hepattn/tree/main?tab=readme-ov-file#%EF%B8%8F-setup) of the apptainer shell.
+To start a shell within the apptainer, run the following commands:
+```bash
+source setup_hepattn.sh
+export PYTHONPATH=/home/export/mmarcheg/ml4reco/hgcal-offline-reco/src:$PYTHONPATH
+```
+
+Now you can run using the environment of the `hepattn` repository alongside the custom code specific for the HGCAL in the `src` folder.
