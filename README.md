@@ -98,3 +98,11 @@ export PYTHONPATH=/home/export/mmarcheg/ml4reco/hgcal-offline-reco/src:$PYTHONPA
 ```
 
 Now you can run using the environment of the `hepattn` repository alongside the custom code specific for the HGCAL in the `src` folder.
+
+To run the model training:
+
+```bash
+python src/scripts/train/train_maskformer.py fit --config configs/base.yaml
+```
+
+Note that the parameters in `configs/base.yaml` are a template and need to be tuned for the HGCAL reconstruction case.
