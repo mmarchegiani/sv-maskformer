@@ -7,7 +7,7 @@ name = "hgcal-offline-reco"
 version = "0.1.0"
 description = "HGCAL offline reconstruction using machine learning techniques"
 readme = "README.md"
-requires-python = "==3.12"
+requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
     { name = "Matteo Marchegiani" },
@@ -48,8 +48,8 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://gitlab.cern.ch/hgcal/hgcal-offline-reco"
-"Bug Tracker" = "https://gitlab.cern.ch/hgcal/hgcal-offline-reco/-/issues"
+Repository = "https://gitlab.cern.ch/cms-cmu/hgcal-ml4reco/hgcal-offline-reco"
+"Bug Tracker" = "https://gitlab.cern.ch/cms-cmu/hgcal-ml4reco/hgcal-offline-reco/-/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
