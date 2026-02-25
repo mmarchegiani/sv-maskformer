@@ -56,5 +56,5 @@ then
     echo "Krb5 credentials for '$EOS_ACCOUNT_USERNAME' have not been cleared up"
 fi
 
-echo "Updated EOS web site in '$EOS_PATH'"
+echo "EOS access test successful"
 exit 0

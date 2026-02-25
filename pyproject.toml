@@ -7,7 +7,7 @@ name = "hgcal-offline-reco"
 version = "0.1.0"
 description = "HGCAL offline reconstruction using machine learning techniques"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = "==3.12"
 license = {text = "MIT"}
 authors = [
     { name = "Matteo Marchegiani" },
@@ -17,11 +17,12 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Physics",
 ]
 
 dependencies = [
+    "hepattn @ git+https://github.com/samvanstroud/hepattn.git@main",
     "numpy>=1.24.0",
     "pandas>=1.17.0",
     "torch>=2.0.0",
@@ -30,7 +31,11 @@ dependencies = [
     "lightning>=2.0.0",
     "awkward>=2.0.0",
     "uproot>=5.0.0",
-    "pyarrow>=23.0.0"
+    "pyarrow>=23.0.0",
+    "pathos",
+    "vector",
+    "fastjet",
+    "energyflow",
 ]
 
 [project.optional-dependencies]
