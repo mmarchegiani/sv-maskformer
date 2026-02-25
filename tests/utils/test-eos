@@ -7,14 +7,11 @@
 # Environment variables
 #   EOS_ACCOUNT_USERNAME
 #   EOS_ACCOUNT_PASSWORD
-#   CI_OUTPUT_DIR => default: public/
 #   EOS_PATH
-#   EOS_MGM_URL => default: root://eosuser.cern.ch
 
 #
-#
 # Produces:
-#  Uploads to $EOS_PATH in the EOS namespace the files found in CI_WEBSITE_DIR
+#  Lists $EOS_PATH
 
 # Exit if anything fails
 set -e
@@ -38,27 +35,6 @@ fi
 : "${EOS_ACCOUNT_USERNAME:?EOS_ACCOUNT_USERNAME not provided}"
 : "${EOS_ACCOUNT_PASSWORD:?EOS_ACCOUNT_PASSWORD not provided}"
 : "${EOS_PATH:?EOS_PATH not provided}"
-
-# Directory where the web site has been generated in the CI environment
-# If not provided by the user
-
-if [ -z "$CI_OUTPUT_DIR" ];
-then
-	CI_OUTPUT_DIR="public/"
-fi
-
-# Check the source directory exists
-if [ ! -d "$CI_OUTPUT_DIR" ]
-then
-	echo "ERROR: Source directory '$CI_OUTPUT_DIR' doesn't exist"
-	exit 1
-fi
-
-# EOS MGM URL, if not provided by the user
-if [ -z "$EOS_MGM_URL" ];
-then
-	EOS_MGM_URL="root://eosuser.cern.ch"
-fi
 
 # Get credentials
 echo "$EOS_ACCOUNT_PASSWORD" | $kinit "$EOS_ACCOUNT_USERNAME@CERN.CH" 2>&1 >/dev/null
