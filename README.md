@@ -54,6 +54,11 @@ Example of how to run a training:
 python src/scripts/train/train_taus_integrated_noise.py --root /eos/user/m/mmarcheg/ml4reco/data/taus_2025
 ```
 
+To skip sanity checking of the validation dataloader and test with a single worker, run the training with these options:
+```bash
+python src/scripts/train/train_maskformer.py fit --config configs/base.yaml --data.num_workers 0 --trainer.num_sanity_val_steps 0
+```
+
 ## Evaluation
 TBC.
 
