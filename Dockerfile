@@ -13,15 +13,15 @@ RUN apt-get update && \
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Install core dependencies
-RUN pip install --no-cache-dir numpy>=1.24.0
-RUN pip install --no-cache-dir pandas>=1.17.0
-RUN pip install --no-cache-dir torch>=2.0.0
-RUN pip install --no-cache-dir torch_geometric>=2.7.0
-RUN pip install --no-cache-dir tqdm>=4.65.0
-RUN pip install --no-cache-dir lightning>=2.0.0
-RUN pip install --no-cache-dir awkward>=2.0.0
-RUN pip install --no-cache-dir uproot>=5.0.0
-RUN pip install --no-cache-dir pyarrow>=23.0.0
+RUN pip install --no-cache-dir numpy>=1.24.0 && \
+    pip install --no-cache-dir pandas>=1.17.0 && \
+    pip install --no-cache-dir torch>=2.0.0 && \
+    pip install --no-cache-dir torch_geometric>=2.7.0 && \
+    pip install --no-cache-dir tqdm>=4.65.0 && \
+    pip install --no-cache-dir lightning>=2.0.0 && \
+    pip install --no-cache-dir awkward>=2.0.0 && \
+    pip install --no-cache-dir uproot>=5.0.0 && \
+    pip install --no-cache-dir pyarrow>=23.0.0
 
 # Copy all application code
 COPY . .
@@ -31,6 +31,6 @@ RUN echo "=======================================" && \
     echo "Installing hgcal-offline-reco with dependencies" && \
     echo "Current time:" $(date) && \
     echo "=======================================" && \
-    pip install --no-cache-dir -e .[dev,fa2] --verbose && \
+    pip install --no-cache-dir .[dev,fa2] --verbose && \
     echo "Installation complete!"
 
