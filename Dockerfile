@@ -12,6 +12,17 @@ RUN apt-get update && \
 # Upgrade pip
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
+# Install core dependencies
+RUN pip install --no-cache-dir numpy>=1.24.0
+RUN pip install --no-cache-dir pandas>=1.17.0
+RUN pip install --no-cache-dir torch>=2.0.0
+RUN pip install --no-cache-dir torch_geometric>=2.7.0
+RUN pip install --no-cache-dir tqdm>=4.65.0
+RUN pip install --no-cache-dir lightning>=2.0.0
+RUN pip install --no-cache-dir awkward>=2.0.0
+RUN pip install --no-cache-dir uproot>=5.0.0
+RUN pip install --no-cache-dir pyarrow>=23.0.0
+
 # Copy all application code
 COPY . .
 
