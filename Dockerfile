@@ -1,4 +1,4 @@
-FROM python:3.12
+FROM pytorch/pytorch:2.10.0-cuda13.0-cudnn9-runtime
 
 # Set the workdir
 WORKDIR /app
@@ -13,15 +13,15 @@ RUN apt-get update && \
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Install core dependencies
-RUN pip install --no-cache-dir numpy>=1.24.0 && \
-    pip install --no-cache-dir pandas>=1.17.0 && \
-    pip install --no-cache-dir torch>=2.0.0 && \
-    pip install --no-cache-dir torch_geometric>=2.7.0 && \
-    pip install --no-cache-dir tqdm>=4.65.0 && \
-    pip install --no-cache-dir lightning>=2.0.0 && \
-    pip install --no-cache-dir awkward>=2.0.0 && \
-    pip install --no-cache-dir uproot>=5.0.0 && \
-    pip install --no-cache-dir pyarrow>=23.0.0
+#RUN pip install --no-cache-dir numpy>=1.24.0 && \
+#    pip install --no-cache-dir pandas>=1.17.0 && \
+#    pip install --no-cache-dir torch>=2.0.0 && \
+#    pip install --no-cache-dir torch_geometric>=2.7.0 && \
+#    pip install --no-cache-dir tqdm>=4.65.0 && \
+#    pip install --no-cache-dir lightning>=2.0.0 && \
+#    pip install --no-cache-dir awkward>=2.0.0 && \
+#    pip install --no-cache-dir uproot>=5.0.0 && \
+#    pip install --no-cache-dir pyarrow>=23.0.0
 
 # Copy all application code
 COPY . .
