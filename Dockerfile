@@ -1,5 +1,8 @@
 FROM pytorch/pytorch:2.10.0-cuda13.0-cudnn9-runtime
 
+# Allow pip to install packages in externally-managed environments (safe for containers)
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+
 # Set the workdir
 WORKDIR /app
 
