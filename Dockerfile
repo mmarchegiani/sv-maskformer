@@ -8,7 +8,7 @@ WORKDIR /app
 
 # Minimal software stack
 RUN apt-get update && \
-    apt-get install -y nano less htop git libhdf5-serial-dev && \
+    apt-get install -y nano less htop git libhdf5-serial-dev build-essential && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
