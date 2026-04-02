@@ -48,15 +48,10 @@ cd ..
 
 Now you are all setup and ready to run the first training.
 
-## Training
+## GNN training
 Example of how to run a training:
 ```bash
 python src/scripts/train/train_taus_integrated_noise.py --root /eos/user/m/mmarcheg/ml4reco/data/taus_2025
-```
-
-To skip sanity checking of the validation dataloader and test with a single worker, run the training with these options:
-```bash
-python src/scripts/train/train_maskformer.py fit --config configs/base.yaml --data.num_workers 0 --trainer.num_sanity_val_steps 0
 ```
 
 ## Evaluation
@@ -107,6 +102,11 @@ To run the model training:
 
 ```bash
 python src/scripts/train/train_maskformer.py fit --config configs/base.yaml
+```
+
+To skip sanity checking of the validation dataloader and test with a single worker, run the training with these options:
+```bash
+python src/scripts/train/train_maskformer.py fit --config configs/base.yaml --data.num_workers 0 --trainer.num_sanity_val_steps 0
 ```
 
 Note that the parameters in `configs/base.yaml` are a template and need to be tuned for the HGCAL reconstruction case.
