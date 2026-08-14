@@ -110,3 +110,36 @@ python src/scripts/train/train_maskformer.py fit --config configs/base.yaml --da
 ```
 
 Note that the parameters in `configs/base.yaml` are a template and need to be tuned for the HGCAL reconstruction case.
+
+
+## Customize topocluster and particle collections
+Multiple (topocluster, particle) combinations are supported:
+- (`RecHitHGC`, `SimCluster`) 
+- (`RecHitHGC`, `MergedSimCluster`) 
+- (`LayerCluster`, `SimCluster`)
+
+To customize the collections, specify the collections in the YAML config file in the `data` section.
+For example, to train a reconstruction model using `LayerClusters` as topoclusters and `SimClusters` as true particles, one should specify:
+
+```yaml
+data:
+  topocluster_collection: LayerCluster
+  particle_collection: SimCluster
+
+  inputs:
+    topocluster:
+      - "e"
+      - "eta"
+      - "cosphi"
+      - "sinphi"
+      - "r"
+
+  targets:
+    particle:
+      - e
+      - eta
+      - cosphi
+      - sinphi
+      - r
+
+```
