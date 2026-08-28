@@ -15,6 +15,7 @@ In this environment is installed all the software needed for the training and ev
 > The singularity image in `/cvmfs` is systematically updated at every commit on the `master` branch of this repo.
 > However, latencies might occur where the changes to this repo are not propagated yet to the singularity image in `/cvmfs`.
 > If the singularity is outdated, a warning message will be displayed before entering in the singularity image.
+> You can also display the dates of last image update and last commit with the `-v` argument: `source setup_env.sh -v`
 
 ## Training
 To run the model training:
