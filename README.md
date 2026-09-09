@@ -17,6 +17,28 @@ In this environment is installed all the software needed for the training and ev
 > If the singularity is outdated, a warning message will be displayed before entering in the singularity image.
 > You can also display the dates of last image update and last commit with the `-v` argument: `source setup_env.sh -v`
 
+## Input normalization
+
+The maskformer input features are normalized with the parameters in `configs/hgcal_rechit_var_transform.yaml`.
+To regenerate them from a dataset:
+
+```bash
+sbatch jobs/norm_par_job.sh
+```
+
+Each variable is first transformed (`sqrt`/`log`/`log1p`, set per variable in `VAR_SPECS` inside
+`src/scripts/dataset/compute_norm_par.py`), and only then are its `mean`/`std`/`min`/`max` measured and written
+to the YAML — that order matters, because `hepattn`'s `VarTransform` applies the transform *before* shifting and
+scaling. The job also writes before/after histograms to `plots/norm_par/`, and fails if a variable's extreme lies
+further than its allowed number of standard deviations from the mean (`NSIGMA_FAIL` in the script), so a broken
+variable is caught without tripping on physical tails.
+
+For a quick check on a small subset (full runs must go through Slurm — the gateway node kills processes above 60% CPU):
+
+```bash
+python src/scripts/dataset/compute_norm_par.py --max-files 1 --max-events 20 --dry-run
+```
+
 ## Training
 To run the model training:
 
