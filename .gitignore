@@ -3,3 +3,7 @@ src/dataset/__pycache__
 src/loss/__pycache__
 src/loss/__pycache__
 src/optimization/__pycache__
+# training runs and plots, except the committed normalization before/after histograms
+logs/
+plots/*
+!plots/norm_par/
