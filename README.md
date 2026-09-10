@@ -19,7 +19,8 @@ In this environment is installed all the software needed for the training and ev
 
 ## Input and target normalization
 
-Every training config names **two** scale dicts (see `docs/NORMALIZATION_FIX.md` for the full status and rationale):
+Every training config names **two** scale dicts (see `docs/NORMALIZATION_FIX.md` for the full status and rationale;
+other bugs found while reviewing the repo are tracked in `docs/REVIEW_FINDINGS.md`):
 
 | key in `data:` | fitted on | used by |
 |---|---|---|
