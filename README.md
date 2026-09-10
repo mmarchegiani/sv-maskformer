@@ -17,26 +17,43 @@ In this environment is installed all the software needed for the training and ev
 > If the singularity is outdated, a warning message will be displayed before entering in the singularity image.
 > You can also display the dates of last image update and last commit with the `-v` argument: `source setup_env.sh -v`
 
-## Input normalization
+## Input and target normalization
 
-The maskformer input features are normalized with the parameters in `configs/hgcal_rechit_var_transform.yaml`.
-To regenerate them from a dataset:
+Every training config names **two** scale dicts (see `docs/NORMALIZATION_FIX.md` for the full status and rationale):
+
+| key in `data:` | fitted on | used by |
+|---|---|---|
+| `scale_dict_path` | the topocluster collection (`configs/hgcal_rechit_var_transform.yaml` or `configs/hgcal_layercluster_var_transform.yaml`) | node input features in `HGCDataset` |
+| `particle_scale_dict_path` | the particle collection (`configs/hgcal_mergedsimcluster_var_transform.yaml` or `configs/hgcal_simcluster_var_transform.yaml`) | regression targets in `HGCDataset`, the regression task (`scale_dict_path: *particle_scale_dict_path`) and the prediction writer |
+
+Both dicts use the keys `e`/`eta`/`r` but for populations whose spreads differ by orders of magnitude, so they must
+stay separate files. To regenerate them for a (topocluster, particle) pair:
 
 ```bash
-sbatch jobs/norm_par_job.sh
+sbatch jobs/norm_par_job.sh                                          # RecHitHGC -> MergedSimCluster (configs/base.yaml)
+TOPO=RecHitHGC   PART=SimCluster sbatch jobs/norm_par_job.sh         # configs/base_rechit_simcluster.yaml
+TOPO=LayerCluster PART=SimCluster sbatch jobs/norm_par_job.sh        # configs/base_layercluster_simcluster.yaml
 ```
 
-Each variable is first transformed (`sqrt`/`log`/`log1p`, set per variable in `VAR_SPECS` inside
-`src/scripts/dataset/compute_norm_par.py`), and only then are its `mean`/`std`/`min`/`max` measured and written
+Each variable is first transformed (`sqrt`/`log`/`log1p`, set per variable in `TOPO_VAR_SPECS` / `PARTICLE_VAR_SPECS`
+inside `src/scripts/dataset/compute_norm_par.py`), and only then are its `mean`/`std`/`min`/`max` measured and written
 to the YAML — that order matters, because `hepattn`'s `VarTransform` applies the transform *before* shifting and
-scaling. The job also writes before/after histograms to `plots/norm_par/`, and fails if a variable's extreme lies
-further than its allowed number of standard deviations from the mean (`NSIGMA_FAIL` in the script), so a broken
-variable is caught without tripping on physical tails.
+scaling. The job also writes before/after histograms to `plots/norm_par/` (`particle_*` for the target dict), and
+fails if a variable's extreme lies further than its allowed number of standard deviations from the mean
+(`NSIGMA_FAIL` in the script), so a broken variable is caught without tripping on physical tails.
 
 For a quick check on a small subset (full runs must go through Slurm — the gateway node kills processes above 60% CPU):
 
 ```bash
 python src/scripts/dataset/compute_norm_par.py --max-files 1 --max-events 20 --dry-run
+python src/scripts/dataset/compute_norm_par.py --topocluster-collection LayerCluster --particle-collection SimCluster --max-files 1 --max-events 20 --dry-run
+```
+
+To check a fitted pair end to end through `HGCDataset` (scaled ranges of every input feature and target, finiteness,
+and the specific failure modes the fix addressed):
+
+```bash
+python src/scripts/dataset/verify_norm.py --config configs/base_layercluster_simcluster.yaml --parquet <file.parquet> --num-events 200
 ```
 
 ## Training
@@ -84,7 +101,14 @@ data:
       - sinphi
       - r
 
+  # scale dicts fitted on THESE collections (see "Input and target normalization")
+  scale_dict_path: &scale_dict_path configs/hgcal_layercluster_var_transform.yaml
+  particle_scale_dict_path: &particle_scale_dict_path configs/hgcal_simcluster_var_transform.yaml
 ```
+
+The two scale dicts must match the chosen collections: the node dict is fitted on the topocluster collection
+and the particle dict on the particle collection, and the regression task must reference
+`*particle_scale_dict_path`. `configs/base_layercluster_simcluster.yaml` is a complete example.
 
 ## Evaluation
 To evaluate a trained MaskFormer model, run inference on a test file and write out predictions:
