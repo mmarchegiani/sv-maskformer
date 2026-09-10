@@ -3,6 +3,7 @@ src/dataset/__pycache__
 src/loss/__pycache__
 src/loss/__pycache__
 src/optimization/__pycache__
-# outputs of jobs/norm_par_job.sh and training runs
-plots/
+# training runs and plots, except the committed normalization before/after histograms
 logs/
+plots/*
+!plots/norm_par/

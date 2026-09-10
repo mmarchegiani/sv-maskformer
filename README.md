@@ -39,7 +39,7 @@ TOPO=LayerCluster PART=SimCluster sbatch jobs/norm_par_job.sh        # configs/b
 Each variable is first transformed (`sqrt`/`log`/`log1p`, set per variable in `TOPO_VAR_SPECS` / `PARTICLE_VAR_SPECS`
 inside `src/scripts/dataset/compute_norm_par.py`), and only then are its `mean`/`std`/`min`/`max` measured and written
 to the YAML — that order matters, because `hepattn`'s `VarTransform` applies the transform *before* shifting and
-scaling. The job also writes before/after histograms to `plots/norm_par/` (`particle_*` for the target dict), and
+scaling. The job also writes before/after histograms to `plots/norm_par/` (`<Collection>_<var>_{before,after}.png`, e.g. `RecHitHGC_e_after.png`, `SimCluster_e_after.png`), and
 fails if a variable's extreme lies further than its allowed number of standard deviations from the mean
 (`NSIGMA_FAIL` in the script), so a broken variable is caught without tripping on physical tails.
 
