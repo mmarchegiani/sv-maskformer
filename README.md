@@ -24,8 +24,8 @@ other bugs found while reviewing the repo are tracked in `docs/REVIEW_FINDINGS.m
 
 | key in `data:` | fitted on | used by |
 |---|---|---|
-| `scale_dict_path` | the topocluster collection (`configs/hgcal_rechit_var_transform.yaml` or `configs/hgcal_layercluster_var_transform.yaml`) | node input features in `HGCDataset` |
-| `particle_scale_dict_path` | the particle collection (`configs/hgcal_mergedsimcluster_var_transform.yaml` or `configs/hgcal_simcluster_var_transform.yaml`) | regression targets in `HGCDataset`, the regression task (`scale_dict_path: *particle_scale_dict_path`) and the prediction writer |
+| `scale_dict_path` | the topocluster collection (`configs/hgcal_rechit_var_transform.yaml`, `configs/hgcal_layercluster_var_transform.yaml` or `configs/hgcal_trackster_clue3dhigh_var_transform.yaml`) | node input features in `HGCDataset` |
+| `particle_scale_dict_path` | the particle collection (`configs/hgcal_mergedsimcluster_var_transform.yaml`, `configs/hgcal_simcluster_var_transform.yaml` or `configs/hgcal_simtrackster_var_transform.yaml`) | regression targets in `HGCDataset`, the regression task (`scale_dict_path: *particle_scale_dict_path`) and the prediction writer |
 
 Both dicts use the keys `e`/`eta`/`r` but for populations whose spreads differ by orders of magnitude, so they must
 stay separate files. To regenerate them for a (topocluster, particle) pair:
@@ -34,6 +34,7 @@ stay separate files. To regenerate them for a (topocluster, particle) pair:
 sbatch jobs/norm_par_job.sh                                          # RecHitHGC -> MergedSimCluster (configs/base.yaml)
 TOPO=RecHitHGC   PART=SimCluster sbatch jobs/norm_par_job.sh         # configs/base_rechit_simcluster.yaml
 TOPO=LayerCluster PART=SimCluster sbatch jobs/norm_par_job.sh        # configs/base_layercluster_simcluster.yaml
+TOPO=ticlTrackstersCLUE3DHigh PART=ticlSimTracksters DATA_DIR=<dir> sbatch jobs/norm_par_job.sh   # configs/base_trackster_simtrackster.yaml
 ```
 
 Each variable is first transformed (`sqrt`/`log`/`log1p`, set per variable in `TOPO_VAR_SPECS` / `PARTICLE_VAR_SPECS`
@@ -77,6 +78,7 @@ Multiple (topocluster, particle) combinations are supported:
 - (`RecHitHGC`, `SimCluster`) 
 - (`RecHitHGC`, `MergedSimCluster`) 
 - (`LayerCluster`, `SimCluster`)
+- (`ticlTrackstersCLUE3DHigh`, `ticlSimTracksters`) — TICLv5 tracksters and SimTracksters, see below
 
 To customize the collections, specify the collections in the YAML config file in the `data` section.
 For example, to train a reconstruction model using `LayerClusters` as topoclusters and `SimClusters` as true particles, one should specify:
@@ -110,6 +112,31 @@ data:
 The two scale dicts must match the chosen collections: the node dict is fitted on the topocluster collection
 and the particle dict on the particle collection, and the regression task must reference
 `*particle_scale_dict_path`. `configs/base_layercluster_simcluster.yaml` is a complete example.
+
+### Tracksters as nodes, SimTracksters as particles
+
+`configs/base_trackster_simtrackster.yaml` trains on TICLv5 CLUE3D tracksters (`ticlTrackstersCLUE3DHigh`) to
+predict SimTracksters seeded by SimClusters (`ticlSimTracksters`). It needs a parquet file produced from the TICL
+NanoAOD tables (CMSSW_20_0_0_pre1 or later, e.g. `taus_fineCalo_split.parquet`) that contains, besides the two
+collections:
+
+- the reco → sim **association table** (`CLUE3DHighToSimTSByHits`, or `CLUE3DHighToSimTSByLCs`), written in
+  CMSSW by `AllTracksterToSimTracksterAssociatorsByHitsProducer` and flattened by the NanoAOD
+  `AssociationOneToManyFlatTableProducer`. Per trackster it lists the SimTracksters it shares energy with
+  (`...Links_index`), the shared energy in GeV (`...Links_sharedEnergy`) and the association score
+  (`...Links_score`, lower is better). Select the table with `data.association_collection`.
+- the `SimCluster` collection: SimTracksters carry no `pdgId`, so it (and `eventId`/`bunchCrossing`) is read off
+  the seed SimCluster through `ticlSimTracksters_seedIndex`.
+
+Unlike the hit and layer-cluster pairs, where every node is assigned to a single best-match particle, the
+incidence matrix here is **soft**: entry (particle, node) is the fraction of the trackster's energy shared with
+that SimTrackster (the shares of one trackster sum to at most 1, the rest being energy without simulated
+contribution), so a trackster that merges two showers is split between them. `data.min_link_fraction` drops links below a given share, `data.incidence_cutval` decides which
+shares count as a node of the particle for the mask target, and `data.normalize_incidence: false` keeps the
+energy-share normalisation (the per-particle row normalisation of the other configs would destroy it). The
+particle position target is the SimTrackster barycenter and the energy target its `raw_energy` (layer-cluster sum);
+the `boundary*` branches and `regressed_energy` (true energy at the calorimeter boundary) are available in the
+file if other targets are preferred (`PARTICLE_FIELD_MAP` in `src/dataset/dataset_maskformers.py`).
 
 ## Evaluation
 To evaluate a trained MaskFormer model, run inference on a test file and write out predictions:
