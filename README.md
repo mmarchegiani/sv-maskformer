@@ -134,9 +134,11 @@ that SimTrackster (the shares of one trackster sum to at most 1, the rest being 
 contribution), so a trackster that merges two showers is split between them. `data.min_link_fraction` drops links below a given share, `data.incidence_cutval` decides which
 shares count as a node of the particle for the mask target, and `data.normalize_incidence: false` keeps the
 energy-share normalisation (the per-particle row normalisation of the other configs would destroy it). The
-particle position target is the SimTrackster barycenter and the energy target its `raw_energy` (layer-cluster sum);
-the `boundary*` branches and `regressed_energy` (true energy at the calorimeter boundary) are available in the
-file if other targets are preferred (`PARTICLE_FIELD_MAP` in `src/dataset/dataset_maskformers.py`).
+particle position target is the SimTrackster barycenter and the energy target its `regressed_energy`, the seed's
+true energy at the calorimeter boundary (the best achievable energy reconstruction; the layer-cluster sum
+`raw_energy` is not used). The trackster energy input is `raw_energy`, on purpose: the model must not depend on the
+TICL energy-regression DNN. The `boundary*` branches are available in the file if another position target is
+preferred (`PARTICLE_FIELD_MAP` in `src/dataset/dataset_maskformers.py`).
 
 ## Evaluation
 To evaluate a trained MaskFormer model, run inference on a test file and write out predictions:
