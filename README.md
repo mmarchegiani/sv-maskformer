@@ -138,7 +138,8 @@ particle position target is the SimTrackster barycenter and the energy target it
 true energy at the calorimeter boundary (the best achievable energy reconstruction; the layer-cluster sum
 `raw_energy` is not used). The trackster energy input is `raw_energy`, on purpose: the model must not depend on the
 TICL energy-regression DNN. The `boundary*` branches are available in the file if another position target is
-preferred (`PARTICLE_FIELD_MAP` in `src/dataset/dataset_maskformers.py`).
+preferred (`PARTICLE_FIELD_MAP` in `src/dataset/collections.py`, the torch-free module holding the per-collection
+branch names and truth-association tables shared by the dataset and the evaluation plots).
 
 ## Evaluation
 To evaluate a trained MaskFormer model, run inference on a test file and write out predictions:
@@ -154,3 +155,26 @@ python src/scripts/evaluate/evaluate_maskformer.py test \
 - Use `configs/test.yaml` for the (`RecHitHGC`, `MergedSimCluster`) collections, or `configs/test_ticl_collections.yaml` for (`LayerCluster`, `SimCluster`) — pick whichever matches the collections the model was trained on.
 - If `--ckpt_path` is omitted, the best checkpoint (lowest `val/loss`) is picked up automatically from a `ckpts/` directory next to the `--config` file. Otherwise pass it explicitly, e.g. `--ckpt_path logs/<run>/ckpts/epoch=160-val_loss=6.15737.ckpt`.
 - Output: a parquet file written next to the checkpoint, `<ckpt_name>__test.parquet`, with the same schema as the input test file plus prediction branches (see the `HGCPredictionWriter` docstring in `src/callbacks/prediction_writer.py` for the full list of added fields), and a `<ckpt_name>__test_losses.json` with the mean test loss per task.
+- Plots: after the test loop the script runs the standard plotting chain (`src/scripts/plot/run_plot_chain.py`) on the
+  prediction file and writes the figures next to it, in `<ckpt_name>__test_plots/` (`resolution/`,
+  `resolution_by_class/`, `efficiency/`, `diagnostics/`, `energy/`, plus `metrics.json`/`summary.txt` and
+  `energy/energy_metrics.json`/`energy_summary.txt`). `--plot_dir <dir>` writes them elsewhere, `--skip_plots true`
+  skips them, `--plot_max_events <N>` plots only the first N events. The chain runs as a subprocess of the same
+  interpreter (set `HGCAL_PLOT_PYTHON` to use another one, e.g. one with `mplhep`); if it fails, the evaluation
+  still succeeds and the command to rerun it by hand is printed.
+
+### Plotting a prediction file by hand
+The chain needs only awkward, numpy, pyarrow and matplotlib (`mplhep` is optional; on lxplus the LCG view
+`source /cvmfs/sft.cern.ch/lcg/views/LCG_109/x86_64-el9-gcc13-opt/setup.sh` has all of them):
+
+```bash
+python src/scripts/plot/run_plot_chain.py --input <ckpt_dir>/<ckpt_name>__test.parquet --outdir plots/<run>
+```
+
+The (topocluster, particle) collections are auto-detected from the file (the ones carrying `*_pred_match_idx` and
+`*_pred_valid`); every pair the dataset supports is handled, including the trackster/SimTrackster pair whose truth
+comes from the TICL association table. Options: `--topocluster-collection`/`--particle-collection` to force the
+collections, `--association-collection` and `--min-link-fraction` for the trackster pair (the evaluation script
+passes the model's own settings), `--max-events N` for a subset, `--skip-energy` to skip the energy deep-dive.
+`src/scripts/plot/run_all.sh <parquet> [outdir]` wraps the same command; the two modules it runs,
+`plot_maskformer_eval.py` and `energy_investigation.py`, can also be run on their own with `--input`/`--outdir`.

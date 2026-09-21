@@ -32,6 +32,8 @@ dependencies = [
     "awkward>=2.0.0",
     "uproot>=5.0.0",
     "pyarrow>=23.0.0",
+    "matplotlib>=3.7",
+    "mplhep>=0.3",
     "pathos",
     "vector",
     "fastjet",
