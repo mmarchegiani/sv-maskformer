@@ -141,6 +141,24 @@ TICL energy-regression DNN. The `boundary*` branches are available in the file i
 preferred (`PARTICLE_FIELD_MAP` in `src/dataset/collections.py`, the torch-free module holding the per-collection
 branch names and truth-association tables shared by the dataset and the evaluation plots).
 
+### Non-finite (NaN/inf) guards
+
+A NaN in a single event turns the epoch-mean `val/loss` into NaN while the on-step `train/loss` (logged every
+`log_every_n_steps` batches) can still look fine, and an L1 regression term with a NaN target even keeps finite
+gradients, so such a run trains on silently. The pipeline therefore asserts finiteness where a bad value can
+enter (`src/dataset/finite_checks.py`):
+
+- `HGCDataset`: the scale dicts (finite shift, non-zero scale), every raw branch of the pair once per file, the
+  domain of the `log`/`log1p` energy transforms, the energy shares of the TICL association table (finite, in
+  [0, 1], summing to at most 1 per trackster), and per event the scaled node inputs, the scaled particle targets
+  and the incidence matrix (finite, in [0, 1], node columns or particle rows summing to at most 1).
+- `HGCMaskformer`: every batch on arrival (valid nodes, valid particles, the dense incidence target) and every
+  loss term after `model.loss`. The first non-finite loss raises an `AssertionError` naming the terms and the
+  event numbers, after saving the batch (`inputs`, `targets`, `losses`) to
+  `<log_dir>/nonfinite_<stage>_step<N>_batch<M>.pt` (or `--model.nonfinite_dump_dir`) so it can be replayed on a CPU.
+
+`tests/test_finite_checks.py` exercises the checks on synthetic tensors.
+
 ## Evaluation
 To evaluate a trained MaskFormer model, run inference on a test file and write out predictions:
 
