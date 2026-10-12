@@ -123,7 +123,7 @@ def make_batch(batch_size=3, num_nodes=5, num_objects=4):
     targets = {
         "node_valid": node_valid,
         "particle_valid": particle_valid,
-        "particle_class": torch.full((batch_size, num_objects), 5),
+        "particle_class": torch.full((batch_size, num_objects), 3),  # RESIDUAL_CLASS
         "particle_incidence": torch.rand(batch_size, num_objects, num_nodes) * 0.25,
         "particle_node_valid": torch.zeros(batch_size, num_objects, num_nodes, dtype=torch.bool),
         "event_number": torch.tensor([10, 11, 12]),
