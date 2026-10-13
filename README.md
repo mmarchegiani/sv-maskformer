@@ -17,6 +17,35 @@ In this environment is installed all the software needed for the training and ev
 > If the singularity is outdated, a warning message will be displayed before entering in the singularity image.
 > You can also display the dates of last image update and last commit with the `-v` argument: `source setup_env.sh -v`
 
+## Download training and evaluation datasets
+The training and evaluation datasets are stored on the CMU XRootD server (`root://cmsdata.phys.cmu.edu/`) under
+`/store/group/hgcal-ml-reconstruction/training_datasets/`. To copy them locally, run:
+
+```bash
+bash fetch_datasets.sh [BASE_DIR]
+```
+
+`BASE_DIR` is the destination directory and defaults to `./data`. The script creates two subdirectories:
+
+| directory | dataset | content |
+|---|---|---|
+| `$BASE_DIR/train` | `taus_noFineCalo_with_tracksters_50k` | 50k tau events, used for training and validation |
+| `$BASE_DIR/eval` | `photons_noFineCalo_with_tracksters_<E>GeV_1k` | 1k single-photon events for each energy point (2, 3, 5, 10, 25, 50, 75, 100, 200, 300 GeV), used for evaluation |
+
+All datasets are produced without fine calorimeter granularity (`noFineCalo`) and include the TICL trackster
+collections. The files are copied with `xrdcp -f`, so files already present in `BASE_DIR` are overwritten. Since
+the parquet files are large, point `BASE_DIR` to a location with enough space (e.g. your EOS or `/afs/.../work`
+area rather than your AFS home), for example:
+
+```bash
+bash fetch_datasets.sh /eos/user/<u>/<username>/hgcal-datasets
+```
+
+Then set `data.train_path`/`data.valid_path`/`data.test_path` in your config to the downloaded files.
+
+## Download training and evaluation datasets
+
+
 ## Input and target normalization
 
 Every training config names **two** scale dicts (see `docs/NORMALIZATION_FIX.md` for the full status and rationale;
