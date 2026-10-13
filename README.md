@@ -174,25 +174,43 @@ python src/scripts/evaluate/evaluate_maskformer.py test \
 - If `--ckpt_path` is omitted, the best checkpoint (lowest `val/loss`) is picked up automatically from a `ckpts/` directory next to the `--config` file. Otherwise pass it explicitly, e.g. `--ckpt_path logs/<run>/ckpts/epoch=160-val_loss=6.15737.ckpt`.
 - Output: a parquet file written next to the checkpoint, `<ckpt_name>__test.parquet`, with the same schema as the input test file plus prediction branches (see the `HGCPredictionWriter` docstring in `src/callbacks/prediction_writer.py` for the full list of added fields), and a `<ckpt_name>__test_losses.json` with the mean test loss per task.
 - Plots: after the test loop the script runs the standard plotting chain (`src/scripts/plot/run_plot_chain.py`) on the
-  prediction file and writes the figures next to it, in `<ckpt_name>__test_plots/` (`resolution/`,
-  `resolution_by_class/`, `efficiency/`, `diagnostics/`, `energy/`, plus `metrics.json`/`summary.txt` and
-  `energy/energy_metrics.json`/`energy_summary.txt`). `--plot_dir <dir>` writes them elsewhere, `--skip_plots true`
-  skips them, `--plot_max_events <N>` plots only the first N events. The chain runs as a subprocess of the same
-  interpreter (set `HGCAL_PLOT_PYTHON` to use another one, e.g. one with `mplhep`); if it fails, the evaluation
-  still succeeds and the command to rerun it by hand is printed.
+  prediction file and writes the figures next to it, in `<ckpt_name>__test_plots/`:
+  - `resolution/`, `resolution_by_class/`, `efficiency/`, `diagnostics/`: per-cluster resolutions and clustering
+    efficiency, plus `metrics.json`/`summary.txt`;
+  - `cluster_properties/`: true vs predicted distribution of every regressed feature (e, eta, cosphi, sinphi, r),
+    `response/` the 1D response `pred/true` per feature and `response/by_<feat>/` the response of every feature in
+    bins of every (true) feature;
+  - `topocluster_features/raw/` and `topocluster_features/transform/`: the node input features (`data.inputs.topocluster`)
+    as read from the file and after the scale-dict transform the dataset applies (`data.scale_dict_path`);
+  - `event_reconstruction/`: the event as one object, i.e. the sum of all predicted clusters (energy sum,
+    energy-weighted eta/cosphi/sinphi/r) against the true particles - what matters for a photon reconstructed as
+    e+e-. Only matched queries enter (the kinematics of fake queries are not stored; their count is plotted);
+  - `event_display/`: 3D views and 2D projections (y-x, x-z, y-z, rho-z) of the first events, true and predicted
+    clusters as rings sized by their energy, nodes as dots;
+  - `energy/`: the energy deep-dive with `energy_metrics.json`/`energy_summary.txt`.
+
+  `--plot_dir <dir>` writes them elsewhere, `--skip_plots true` skips them, `--plot_max_events <N>` plots only the
+  first N events, `--plot_n_display <N>` sets the number of event displays (default 5). The chain runs as a
+  subprocess of the same interpreter (set `HGCAL_PLOT_PYTHON` to use another one, e.g. one with `mplhep`); if it
+  fails, the evaluation still succeeds and the command to rerun it by hand is printed.
 
 ### Plotting a prediction file by hand
 The chain needs only awkward, numpy, pyarrow and matplotlib (`mplhep` is optional; on lxplus the LCG view
 `source /cvmfs/sft.cern.ch/lcg/views/LCG_109/x86_64-el9-gcc13-opt/setup.sh` has all of them):
 
 ```bash
-python src/scripts/plot/run_plot_chain.py --input <ckpt_dir>/<ckpt_name>__test.parquet --outdir plots/<run>
+python src/scripts/plot/run_plot_chain.py --input <ckpt_dir>/<ckpt_name>__test.parquet --outdir plots/<run> \
+    --scale-dict configs/hgcal_trackster_clue3dhigh_var_transform.yaml --node-features e eta cosphi sinphi r
 ```
 
 The (topocluster, particle) collections are auto-detected from the file (the ones carrying `*_pred_match_idx` and
 `*_pred_valid`); every pair the dataset supports is handled, including the trackster/SimTrackster pair whose truth
 comes from the TICL association table. Options: `--topocluster-collection`/`--particle-collection` to force the
 collections, `--association-collection` and `--min-link-fraction` for the trackster pair (the evaluation script
-passes the model's own settings), `--max-events N` for a subset, `--skip-energy` to skip the energy deep-dive.
-`src/scripts/plot/run_all.sh <parquet> [outdir]` wraps the same command; the two modules it runs,
-`plot_maskformer_eval.py` and `energy_investigation.py`, can also be run on their own with `--input`/`--outdir`.
+passes the model's own settings), `--max-events N` for a subset, `--skip-energy` to skip the energy deep-dive,
+`--scale-dict` (the node scale dict of the training config, `data.scale_dict_path`) to get the transformed node
+features (without it only `topocluster_features/raw/` is written), `--node-features` (the model's
+`data.inputs.topocluster`, default `e eta cosphi sinphi r`), `--n-display N` / `--skip-display` for the event
+displays. `src/scripts/plot/run_all.sh <parquet> [outdir]` wraps the same command; the modules it runs
+(`plot_maskformer_eval.py`, `energy_investigation.py`, `cluster_properties.py`, `topocluster_features.py`,
+`event_reconstruction.py`, `event_display.py`) can also be run on their own with `--input`/`--outdir`.
