@@ -108,6 +108,30 @@ python src/scripts/train/train_maskformer.py fit --config configs/base.yaml --da
 
 Note that the parameters in `configs/base.yaml` are a template and need to be tuned for the HGCAL reconstruction case.
 
+### Checkpoints and early stopping
+
+Checkpoints go to `logs/<run>/ckpts/`. hepattn's `Checkpoint` callback writes every epoch as
+`epoch=NNN-val_loss=X.XXXXX.ckpt`; the `BestCheckpoint` callback (`src/callbacks/best_checkpoint.py`) keeps, next to
+them, a single copy of the best epoch so far as `best-epoch=NNN-val_loss=X.XXXXX.ckpt`, replacing the previous
+`best-*` file whenever a later epoch lowers `val/loss`.
+
+The `EarlyStopping` callback (`src/callbacks/early_stopping.py`, a thin layer over Lightning's) ends the training
+before `trainer.max_epochs` when the total validation loss `val/loss` has not decreased for `patience` consecutive
+epochs (a NaN/inf `val/loss` also stops it). Both are enabled in every training config in `configs/`:
+
+```yaml
+trainer:
+  callbacks:
+    - class_path: callbacks.best_checkpoint.BestCheckpoint
+      init_args:
+        monitor: val/loss
+    - class_path: callbacks.early_stopping.EarlyStopping
+      init_args:
+        patience: 25   # epochs without improvement before stopping
+```
+
+Remove the `EarlyStopping` entry to always train for `max_epochs`.
+
 
 ## Customize topocluster and particle collections
 Multiple (topocluster, particle) combinations are supported:
@@ -207,7 +231,7 @@ python src/scripts/evaluate/evaluate_maskformer.py test \
 ```
 
 - Use `configs/test.yaml` for the (`RecHitHGC`, `MergedSimCluster`) collections, or `configs/test_ticl_collections.yaml` for (`LayerCluster`, `SimCluster`) — pick whichever matches the collections the model was trained on.
-- If `--ckpt_path` is omitted, the best checkpoint (lowest `val/loss`) is picked up automatically from a `ckpts/` directory next to the `--config` file. Otherwise pass it explicitly, e.g. `--ckpt_path logs/<run>/ckpts/epoch=160-val_loss=6.15737.ckpt`.
+- If `--ckpt_path` is omitted, the best checkpoint (lowest `val/loss`) is picked up automatically from a `ckpts/` directory next to the `--config` file. Otherwise pass it explicitly, e.g. `--ckpt_path logs/<run>/ckpts/epoch=160-val_loss=6.15737.ckpt` (or the `best-epoch=...` copy written by `BestCheckpoint`, see [Checkpoints and early stopping](#checkpoints-and-early-stopping)).
 - Output: a parquet file written next to the checkpoint, `<ckpt_name>__test.parquet`, with the same schema as the input test file plus prediction branches (see the `HGCPredictionWriter` docstring in `src/callbacks/prediction_writer.py` for the full list of added fields), and a `<ckpt_name>__test_losses.json` with the mean test loss per task.
 - Plots: after the test loop the script runs the standard plotting chain (`src/scripts/plot/run_plot_chain.py`) on the
   prediction file and writes the figures next to it, in `<ckpt_name>__test_plots/`:
