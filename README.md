@@ -42,9 +42,16 @@ bash fetch_datasets.sh /eos/user/<u>/<username>/hgcal-datasets
 ```
 
 Then set `data.train_path`/`data.valid_path`/`data.test_path` in your config to the downloaded files.
-
-## Download training and evaluation datasets
-
+If the folder contains multiple files, it's possible to set `data.data_dir` in your config to pick all the files in the folder.
+In addition, it's possible to specify the train, valid, test fractions, for example:
+```yaml
+  train_path: null
+  valid_path: null
+  test_path: null
+  data_dir: /home/export/mmarcheg/store/ml4reco/data_maskformers/taus_noFineCalo_with_tracksters_50k
+  split: [0.7, 0.15, 0.15]   # fractions, or file counts like [80, 10, 10]
+  split_seed: 42           # shuffles the file list before cutting; null keeps rep0, rep1, ... order
+```
 
 ## Input and target normalization
 
