@@ -11,6 +11,7 @@ src/callbacks/__pycache__/
 src/models/__pycache__
 tests/__pycache__/
 # training runs and plots, except the committed normalization before/after histograms
+data/
 logs/
 plots/*
 !plots/norm_par/
