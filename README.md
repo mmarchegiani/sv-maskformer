@@ -276,3 +276,27 @@ features (without it only `topocluster_features/raw/` is written), `--node-featu
 displays. `src/scripts/plot/run_all.sh <parquet> [outdir]` wraps the same command; the modules it runs
 (`plot_maskformer_eval.py`, `energy_investigation.py`, `cluster_properties.py`, `topocluster_features.py`,
 `event_reconstruction.py`, `event_display.py`) can also be run on their own with `--input`/`--outdir`.
+
+## Energy-resolution tooling (single-particle scans)
+`jobs/resolution/` evaluates a trained model on mono-energetic single-particle sets (photons / pions / K0L at
+2–300 GeV, one job per particle and energy) and produces resolution tables and plots. Everything runs inside the
+CVMFS image through sbatch.
+
+```bash
+# one job per set; data in $EVAL_SETS/<particle>_E<E>/*.parquet, model in $RUN_DIR (config.yaml + ckpts/)
+RUN_DIR=models/<run> EVAL_SETS=/path/to/eval_sets bash jobs/resolution/submit_all_cmu_sets.sh
+# Gaussian fits of E_pred, sigma68 of E_pred/E_true and of the plain CLUE3D trackster sum (sumTS), per-set histograms
+sbatch jobs/resolution/analysis_job.sh eval_gaussfit.py models/<run>/eval
+# merged table (events, tracksters, valid fraction, class counts, E/eta/r resolutions, Gaussian and sumTS columns, loss)
+python jobs/resolution/eval_table.py models/<run>/eval
+# sigma(E)/E vs E with the sqrt(a^2/E + c^2) fit, CMS style (RES_FIT=peak|quant, RES_FIT_EMAX=<GeV>, RES_HIDE_ABOVE=1)
+sbatch jobs/resolution/analysis_job.sh plot_resolution.py models/<run>/eval photons
+# trackster-sum vs regression (sigma68 and median ratio vs E)
+sbatch jobs/resolution/analysis_job.sh plot_sumts.py models/<run>/eval photons
+```
+Outputs: `models/<run>/eval/<set>/` (predictions, losses, plot chain, eval.log), `models/<run>/eval/gaussfit_summary.json`
+and `models/<run>/eval/resolution_plots/`. Diagnostics used in issues #5–#7: `binning_scan.py` (fit stability vs
+histogram binning), `epred_vs_sumts.py` (saturation check), `trackster_threshold_check.py` (events without a CLUE3D
+trackster), `simtrackster_count.py` (SimTracksters per event). The resolution points are sigma(E_pred)/E_nominal from a
+Gaussian fit to the E_pred histogram (peak-seeded core window, <= 10 % of events outside), the sigma68 columns are
+quantile widths of E/E_true.
