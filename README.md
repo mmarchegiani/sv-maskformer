@@ -30,7 +30,9 @@ bash fetch_datasets.sh [BASE_DIR]
 | directory | dataset | content |
 |---|---|---|
 | `$BASE_DIR/train` | `taus_noFineCalo_with_tracksters_50k` | 50k tau events, used for training and validation |
-| `$BASE_DIR/eval` | `photons_noFineCalo_with_tracksters_<E>GeV_1k` | 1k single-photon events for each energy point (2, 3, 5, 10, 25, 50, 75, 100, 200, 300 GeV), used for evaluation |
+| `$BASE_DIR/eval` | `photons` | 1k single-photon events for each energy point (2, 3, 5, 10, 25, 50, 75, 100, 200, 300 GeV), used for evaluation |
+| `$BASE_DIR/eval` | `pions` | 1k single-pion events for each energy point (2, 3, 5, 10, 25, 50, 75, 100, 200, 300 GeV), used for evaluation |
+| `$BASE_DIR/eval` | `K0L` | 1k single-kaon events for each energy point (2, 3, 5, 10, 25, 50, 75, 100, 200, 300 GeV), used for evaluation |
 
 All datasets are produced without fine calorimeter granularity (`noFineCalo`) and include the TICL trackster
 collections. The files are copied with `xrdcp -f`, so files already present in `BASE_DIR` are overwritten. Since
