@@ -199,9 +199,58 @@ energy-share normalisation (the per-particle row normalisation of the other conf
 particle position target is the SimTrackster barycenter and the energy target its `regressed_energy`, the seed's
 true energy at the calorimeter boundary (the best achievable energy reconstruction; the layer-cluster sum
 `raw_energy` is not used). The trackster energy input is `raw_energy`, on purpose: the model must not depend on the
-TICL energy-regression DNN. The `boundary*` branches are available in the file if another position target is
-preferred (`PARTICLE_FIELD_MAP` in `src/dataset/collections.py`, the torch-free module holding the per-collection
-branch names and truth-association tables shared by the dataset and the evaluation plots).
+TICL energy-regression DNN. The per-collection branch names and truth-association tables shared by the dataset and
+the evaluation plots live in `PARTICLE_FIELD_MAP` / `TOPO_FIELD_MAP` of `src/dataset/collections.py` (a torch-free
+module).
+
+### Entrance position of the particle (boundary targets)
+
+`configs/trackster_simtrackster_boundary.yaml` is the trackster/SimTrackster training above plus the regression of
+the **entrance position of the particle in HGCAL**: the targets `boundary_x` and `boundary_y`, the transverse
+coordinates of the point where the seed particle's Geant4 track crossed the HGCAL front face. They come from the
+SimTrackster `boundary*` branches of the TICL NanoML tables, which `src/dataset/collections.py` maps to the canonical
+particle fields
+
+| canonical field | branch | meaning |
+|---|---|---|
+| `boundary_x`, `boundary_y`, `boundary_z` | `ticlSimTracksters_boundaryX/Y/Z` | entry point of the seed particle into HGCAL (cm; equals `SimCluster_impactPoint_*` of the seed) |
+| `boundary_eta`, `boundary_phi` | `ticlSimTracksters_boundaryEta/Phi` | eta/phi **of that point**. The dumped `boundaryPhi` is broken in the CMSSW_20_0_0_pre1 production (it holds ±`boundaryEta`), so the dataset, `compute_norm_par.py` and the plots derive both from `boundary_{x,y,z}` and never use these branches |
+| `boundary_px`, `boundary_py`, `boundary_pz` | `ticlSimTracksters_boundaryPx/Py/Pz` | momentum vector (GeV) of the seed particle at the crossing, i.e. of the *entering* particle: `|p|` equals `regressed_energy` up to the particle mass. Loaded, not a target yet |
+
+The same canonical `boundary_{x,y,z,eta,phi}` exist for `SimCluster`/`MergedSimCluster` (their impact point), so the
+boundary targets work for every pair once the corresponding particle dict is refitted. Available targets
+(`EXTRA_TARGETS` in `src/dataset/dataset_maskformers.py`): `boundary_x`, `boundary_y`, `boundary_z`, `boundary_eta`,
+`boundary_sinphi`, `boundary_cosphi`. To use them in a config, keep three things consistent:
+
+```yaml
+data:
+  targets:
+    particle: [e, eta, cosphi, sinphi, r, boundary_x, boundary_y]
+model: ... IncidenceBasedRegressionTask:
+    fields: ["e", "eta", "sinphi", "cosphi", "r", "boundary_x", "boundary_y"]   # same names
+    net: {input_size: 136, output_size: 7}        # 2*dim + len(fields) + 1, len(fields)
+```
+
+and the particle scale dict must carry one entry per boundary target: `configs/hgcal_simtrackster_var_transform.yaml`
+has them since 2026-10-16 (`boundary_x`/`boundary_y`: `min_max_sym` on the entry point, |x|, |y| ≲ 160 cm at the
+q0.1/q99.9 bounds), and `compute_norm_par.py` writes them for every collection with a boundary position. For every
+boundary target the dataset also emits a node-level proxy input `node_<target>` (the raw trackster barycenter x / y /
+z / eta / sin phi / cos phi), which hepattn's `IncidenceBasedRegressionTask` reads for each of its `fields` and
+aggregates over the predicted incidence matrix, exactly like `node_e`/`node_eta`/... for the base targets. The
+prediction writer stores them as `<particle>_pred_boundary_x` / `_pred_boundary_y` (cm), and the plotting chain adds:
+
+- the boundary targets to every generic regression plot (`resolution/`, `resolution_by_class/`, `sigma68_*_vs_*`,
+  `cluster_properties/dist_*`; no pred/true response for the signed x/y);
+- `boundary_position/`: predicted vs true x and y, the 2D residual with its d68 circle, the transverse distance
+  `d = |(x,y)_pred − (x,y)_true|` against two clustering-only baselines (the energy-weighted barycenter of the nodes
+  the model assigned to the particle, and of the truth-assigned nodes, projected onto the boundary z along the line
+  from the origin), `d` vs true energy / eta / class, the x and y residuals vs the true x and y (edge effects) and the
+  entry-point maps; `metrics.json` gets a `boundary_position` block and `summary.txt` an "entrance position" section;
+- `event_reconstruction/weighted_boundary_{x,y}_*`: the energy-weighted entry point of the whole event.
+
+Files without the `boundary*` branches keep working (the fields are skipped with a note) unless a config asks for a
+boundary target, and a prediction file whose model did not regress the entry point only gets the truth read.
+`tests/test_boundary_targets.py` (container) and `tests/test_plot_chain.py` (LCG) cover both sides.
 
 ### Non-finite (NaN/inf) guards
 
@@ -239,9 +288,11 @@ python src/scripts/evaluate/evaluate_maskformer.py test \
   prediction file and writes the figures next to it, in `<ckpt_name>__test_plots/`:
   - `resolution/`, `resolution_by_class/`, `efficiency/`, `diagnostics/`: per-cluster resolutions and clustering
     efficiency, plus `metrics.json`/`summary.txt`;
-  - `cluster_properties/`: true vs predicted distribution of every regressed feature (e, eta, cosphi, sinphi, r),
-    `response/` the 1D response `pred/true` per feature and `response/by_<feat>/` the response of every feature in
-    bins of every (true) feature;
+  - `cluster_properties/`: true vs predicted distribution of every regressed feature (e, eta, cosphi, sinphi, r, and
+    the boundary targets when regressed), `response/` the 1D response `pred/true` per feature and `response/by_<feat>/`
+    the response of every feature in bins of every (true) feature;
+  - `boundary_position/`: the entrance-position performance when `boundary_x`/`boundary_y` were regressed (see
+    [Entrance position of the particle](#entrance-position-of-the-particle-boundary-targets));
   - `topocluster_features/raw/` and `topocluster_features/transform/`: the node input features (`data.inputs.topocluster`)
     as read from the file and after the scale-dict transform the dataset applies (`data.scale_dict_path`);
   - `event_reconstruction/`: the event as one object, i.e. the sum of all predicted clusters (energy sum,
