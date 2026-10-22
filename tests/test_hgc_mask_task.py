@@ -11,6 +11,7 @@ import torch
 import torch.nn.functional as F
 
 hepattn_task = pytest.importorskip("hepattn.models.task")
+from hepattn.models.loss import loss_fns as hepattn_loss_fns  # noqa: E402
 from models.tasks import HGCObjectHitMaskTask  # noqa: E402
 
 LOSSES = {"mask_bce": 5.0, "mask_dice": 1.0}
@@ -130,3 +131,51 @@ def test_rows_without_objects():
 
 def test_state_dict_unchanged():
     assert set(make(hepattn_task.ObjectHitMaskTask).state_dict()) == set(make(HGCObjectHitMaskTask).state_dict())
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_vectorised_equals_row_by_row(seed):
+    """The one-pass mask_bce / mask_dice equal hepattn's functions evaluated row by row (values and gradients)."""
+    g = torch.Generator().manual_seed(100 + seed)
+    rows = int(torch.randint(2, 6, (1,), generator=g))
+    n_hits = tuple(int(n) for n in torch.randint(1, 13, (rows,), generator=g))
+    n_objects = tuple(int(n) for n in torch.randint(0, 5, (rows,), generator=g))
+    if sum(n_objects) == 0:
+        n_objects = (1,) + n_objects[1:]
+    outputs, targets = make_batch(n_hits=n_hits, n_objects=n_objects, num_queries=4, max_nodes=12, seed=seed)
+    task = make(HGCObjectHitMaskTask)
+    worst = 0.0
+    for name, weight in LOSSES.items():
+        a = outputs["pflow_node_logit"].clone().requires_grad_(True)
+        b = outputs["pflow_node_logit"].clone().requires_grad_(True)
+        fast = task.loss({"pflow_node_logit": a}, targets)[name]
+        target = targets["particle_node_valid"].type_as(b)
+        loop = weight * HGCObjectHitMaskTask._row_by_row(
+            name, b, target, targets["particle_valid"], targets["node_valid"], target + NULL_WEIGHT * (1 - target)
+        )
+        torch.testing.assert_close(fast, loop, rtol=1e-6, atol=1e-7)
+        fast.backward()
+        loop.backward()
+        torch.testing.assert_close(a.grad, b.grad, rtol=1e-5, atol=1e-8)
+        worst = max(worst, float((fast - loop).abs() / loop.abs().clamp_min(1e-12)))
+    print(f"\nseed {seed}: rows {rows}, hits {n_hits}, objects {n_objects}: max relative deviation vectorised vs row loop {worst:.2e}")
+
+
+def test_other_losses_fall_back_to_rows():
+    batch = make_batch()
+    torch.manual_seed(0)
+    task = HGCObjectHitMaskTask(
+        name="mask", input_constituent="node", input_object="query", output_object="pflow", target_object="particle",
+        losses={"mask_focal": 1.0}, costs={"mask_dice": 1.0}, dim=8, null_weight=NULL_WEIGHT,
+    )
+    want = sum(n * hepattn_loss_fns["mask_focal"](*[v[r : r + 1] for v in row_args(batch)][:2],
+                                                    object_valid_mask=batch[1]["particle_valid"][r : r + 1],
+                                                    input_pad_mask=batch[1]["node_valid"][r : r + 1],
+                                                    sample_weight=None)
+               for r, n in enumerate(batch[1]["particle_valid"].sum(-1).tolist()) if n) / int(batch[1]["particle_valid"].sum())
+    torch.testing.assert_close(task.loss(*batch)["mask_focal"], want, rtol=1e-6, atol=1e-7)
+
+
+def row_args(batch):
+    outputs, targets = batch
+    return outputs["pflow_node_logit"], targets["particle_node_valid"].float()
