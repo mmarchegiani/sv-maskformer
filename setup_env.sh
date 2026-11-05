@@ -32,4 +32,9 @@ else
     BINDINGS="-B /cvmfs -B /tmp"
 fi
 
+# The image holds a frozen copy of the packages installed at its build; put this checkout first so that
+# `maskformers` (the console script of the image) and `python -m maskformers` run the code of this checkout.
+export APPTAINERENV_PYTHONPATH="$REPO_PATH/src${PYTHONPATH:+:$PYTHONPATH}"
+export APPTAINERENV_HGCAL_REPO_ROOT="$REPO_PATH"
+
 apptainer shell $BINDINGS --nv $SINGULARITY_IMAGE

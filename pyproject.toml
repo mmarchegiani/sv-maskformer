@@ -38,7 +38,11 @@ dependencies = [
     "vector",
     "fastjet",
     "energyflow",
+    "click>=8.1",
 ]
+
+[project.scripts]
+maskformers = "maskformers.cli:cli"
 
 [project.optional-dependencies]
 dev = [
