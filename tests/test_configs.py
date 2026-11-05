@@ -12,8 +12,6 @@ SUBFOLDERS = ("rechit", "layercluster", "trackster_clue3dhigh", "trackster_clues
 #: scale dicts referenced by configs but not fitted yet (see params/README.md)
 KNOWN_MISSING = {
     "hgcal_mergedsimcluster_var_transform.yaml",
-    "toy_rechit_var_transform.yaml",
-    "toy_simcluster_var_transform_sec.yaml",
 }
 CONFIG_FILES = sorted(CONFIGS.glob("*/*.yaml"))
 
