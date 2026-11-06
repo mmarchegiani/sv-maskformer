@@ -1,0 +1,209 @@
+name: sv_maskformer_gv_tracks_small
+seed_everything: 42
+
+# Small, CPU-friendly variant of configs/sv/gv_tracks.yaml for smoke tests of the pipeline (dataset, model, matcher,
+# prediction writer, plots): dim 64, 2 + 2 layers, torch attention, no compilation. Same data, inputs, targets and
+# loss weights as the full config; not meant to give a competitive model.
+#
+#   maskformer-sv train -c configs/sv/gv_tracks_small.yaml --debug --max-epochs 1 --trainer.limit_train_batches 5 \
+#       --trainer.limit_val_batches 2
+#   maskformer-sv evaluate -c logs/sv_maskformer_gv_tracks_small_<stamp>/config.yaml --data.num_test 50
+data:
+  track_collection: track
+  vertex_collection: GV
+  inputs:
+    track: [pt, eta, sinphi, cosphi, ip2d, ip2dsig, ip3d, ip3dsig, dz, dzsig, charge, nhits, npixhits, nstriphits, chi2, qoverp, highpurity, passseed]
+  targets:
+    vertex: [pt, eta, sinphi, cosphi, lxy, lz]
+  num_objects: &num_objects 16
+  max_tracks: 1024
+  min_tracks_for_valid: 1
+  track_min_pt: 0.0
+  track_max_abs_eta: null
+  track_require_pass_seed: false
+  track_require_high_purity: false
+  track_max_per_event: null
+
+  train_path: /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/train
+  valid_path: /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/val
+  test_path: /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/test
+  data_dir: null
+  split: null
+
+  num_workers: 0
+  num_train: 200
+  num_val: 50
+  num_test: 50
+  batch_size: 8
+
+  scale_dict_path: &scale_dict_path params/sv_track_var_transform.yaml
+  vertex_scale_dict_path: &vertex_scale_dict_path params/sv_vertex_var_transform.yaml
+
+trainer:
+  max_epochs: 2
+  accelerator: cpu
+  devices: 1
+  precision: 32-true
+  gradient_clip_val: 1.0
+  log_every_n_steps: 5
+  default_root_dir: logs
+  enable_progress_bar: True
+
+  # offline Comet experiment (no API key needed); the full config logs online with the user's credentials
+  logger:
+    class_path: hepattn.utils.loggers.MyCometLogger
+    init_args:
+      project: hepattn-sv
+      online: false
+
+  callbacks:
+    - class_path: hepattn.callbacks.SaveConfig
+    - class_path: hepattn.callbacks.Checkpoint
+      init_args:
+        monitor: val/loss
+        save_last: true
+    - class_path: maskformer.callbacks.best_checkpoint.BestCheckpoint
+      init_args:
+        monitor: val/loss
+    - class_path: sv.callbacks.prediction_writer.SVPredictionWriter
+    - class_path: lightning.pytorch.callbacks.ModelSummary
+    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    - class_path: lightning.pytorch.callbacks.TQDMProgressBar
+      init_args:
+        refresh_rate: 5
+
+model:
+  optimizer: AdamW
+  lrs_config:
+    initial: 1e-5
+    max: 5e-4
+    end: 1e-5
+    pct_start: 0.1
+    weight_decay: 1e-5
+    skip_scheduler: false
+  mtl: false
+  num_classes: 3
+  constituent: track
+
+  model:
+    class_path: hepattn.models.MaskFormer
+    init_args:
+      dim: &dim 64
+
+      input_nets:
+        class_path: torch.nn.ModuleList
+        init_args:
+          modules:
+            - class_path: hepattn.models.InputNet
+              init_args:
+                input_name: track
+                fields: [features]
+                net:
+                  class_path: hepattn.models.Dense
+                  init_args:
+                    input_size: 18  # len(data.inputs.track)
+                    output_size: *dim
+                    hidden_layers: [64]
+                posenc:
+                  class_path: hepattn.models.posenc.FourierPositionEncoder
+                  init_args:
+                    input_name: track
+                    dim: *dim
+                    fields: [eta, phi]
+                    scale: 0.1
+
+      encoder:
+        class_path: hepattn.models.Encoder
+        init_args:
+          num_layers: 2
+          dim: *dim
+          attn_type: torch
+          hybrid_norm: true
+          value_residual: true
+          num_register_tokens: 4
+          attn_kwargs:
+            num_heads: 4
+
+      decoder:
+        num_decoder_layers: 2
+        num_queries: *num_objects
+        mask_attention: true
+        use_query_masks: false
+        decoder_layer_config:
+          dim: *dim
+          hybrid_norm: true
+          attn_kwargs:
+            num_heads: 4
+
+      matcher:
+        class_path: hepattn.models.matcher.Matcher
+        init_args:
+          default_solver: scipy
+          adaptive_solver: false
+          parallel_solver: false
+
+      tasks:
+        class_path: torch.nn.ModuleList
+        init_args:
+          modules:
+            - class_path: hepattn.models.task.ObjectClassificationTask
+              init_args:
+                name: classification
+                input_object: query
+                output_object: pflow
+                target_object: particle
+                num_classes: 3
+                losses:
+                  object_ce: 0.5
+                costs:
+                  object_ce: 0.5
+                net:
+                  class_path: hepattn.models.Dense
+                  init_args:
+                    input_size: *dim
+                    output_size: 4
+                    hidden_layers: [64, 32]
+                null_weight: 0.5
+                class_weights: [1.0, 1.0, 1.0]
+                mask_queries: false
+                has_intermediate_loss: true
+
+            - class_path: maskformer.models.tasks.RowwiseObjectHitMaskTask
+              init_args:
+                name: mask
+                input_constituent: track
+                input_object: query
+                output_object: pflow
+                target_object: particle
+                losses:
+                  mask_bce: 12.0
+                  mask_dice: 8.0
+                costs:
+                  mask_bce: 12.0
+                  mask_dice: 8.0
+                dim: *dim
+                null_weight: 1.0
+                logit_scale: 1.0
+                pred_threshold: 0.5
+                mask_attention_threshold: 0.1
+                has_intermediate_loss: true
+
+            - class_path: maskformer.models.tasks.ConfigurableObjectRegressionTask
+              init_args:
+                name: regression
+                input_object: query
+                output_object: pflow
+                target_object: particle
+                fields: [pt, eta, sinphi, cosphi, lxy, lz]
+                loss: l1
+                loss_weight: 2.0
+                cost_weight: 2.0
+                use_cost: true
+                dim: *dim
+                net:
+                  class_path: hepattn.models.Dense
+                  init_args:
+                    input_size: *dim
+                    output_size: 6
+                    hidden_layers: [64, 32]
+                has_intermediate_loss: true
