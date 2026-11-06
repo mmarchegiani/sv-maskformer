@@ -13,8 +13,10 @@ Produces, under ``--outdir``:
   tracks/           the track assignment: where the tracks of the heavy-flavour vertices end up, and how many
                     background tracks are claimed by a predicted vertex
 
-and ``metrics.json`` + ``summary.txt``. A truth vertex enters the efficiencies when it was a target of the model and
-has at least EVAL_MIN_TRACKS (2) selected tracks, as in the paper; the single-track vertices are reported separately.
+and ``metrics.json`` + ``summary.txt``; the chain (run_sv_plot_chain.py) adds resolution/, the absolute and relative
+residual of every regressed property (plot_sv_resolution.py). A truth vertex enters the efficiencies when it was a
+target of the model and has at least EVAL_MIN_TRACKS (2) selected tracks, as in the paper; the single-track vertices
+are reported separately.
 
     python src/sv/scripts/plot/plot_sv_eval.py --input <ckpt>__test.parquet --outdir plots/sv_eval
 """
@@ -409,6 +411,10 @@ def write_summary(d: EvalData, metrics: dict, outdir: str) -> None:
         if isinstance(v, dict):
             lines.append(f"  {field:6s} median {v['median']:+.4f}  sigma68 {v['sigma68']:.4f}  <|res|> {v['mean_abs']:.4f}"
                          + (f"  within 50%: {v['within_50pct']:.3f}" if v.get("within_50pct") is not None else ""))
+    if metrics.get("resolution"):
+        from plot_sv_resolution import summary_lines  # lazily: that module imports EVAL_MIN_TRACKS from this one
+
+        lines += ["", *summary_lines(metrics["resolution"])]
     lines += [
         "",
         f"Tracks: {t['hf_tracks_of_targets']} heavy-flavour tracks of target vertices: right vertex {t['assigned_to_right_vertex']:.3f}, "

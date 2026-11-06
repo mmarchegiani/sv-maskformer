@@ -2,9 +2,10 @@
 """The SV plot chain on one prediction file (what `maskformer-sv evaluate` runs after the test loop).
 
 Loads the file once (``sv_eval_common.EvalData``) and runs the sections of ``plot_sv_eval`` (efficiency/, fakes/,
-classification/, regression/, tracks/, metrics.json, summary.txt). A failing section is reported (and recorded in
-``<outdir>/plot_chain_failures.txt``) without stopping the others. Needs awkward, numpy, pyarrow and matplotlib
-(mplhep optional), no torch.
+classification/, regression/, tracks/) and of ``plot_sv_resolution`` (resolution/: the absolute and relative
+residual of every regressed property), then writes metrics.json and summary.txt. A failing section is reported
+(and recorded in ``<outdir>/plot_chain_failures.txt``) without stopping the others. Needs awkward, numpy, pyarrow
+and matplotlib (mplhep optional), no torch.
 
     maskformer-sv plot --input <ckpt_dir>/<ckpt>__test.parquet --outdir <ckpt_dir>/<ckpt>__test_plots
     python src/sv/scripts/plot/run_sv_plot_chain.py --input <file> --outdir <dir> [--max-events N]
@@ -23,8 +24,14 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sv_eval_common import EvalData  # noqa: E402
 import plot_sv_eval as ev  # noqa: E402
+import plot_sv_resolution as res  # noqa: E402
 
-SECTIONS = ("efficiency", "fakes", "classification", "regression", "tracks")
+SECTIONS = ("efficiency", "fakes", "classification", "regression", "tracks", "resolution")
+
+
+def section(name: str):
+    """The function of a section: ``<name>_section(data, outdir, metrics)``."""
+    return res.resolution_section if name == "resolution" else getattr(ev, f"{name}_section")
 
 
 def run_chain(input, outdir, track_collection="track", vertex_collection="GV", max_events=None) -> dict:
@@ -38,7 +45,7 @@ def run_chain(input, outdir, track_collection="track", vertex_collection="GV", m
     for name in SECTIONS:
         print(f"[chain] {name} ...", flush=True)
         try:
-            getattr(ev, f"{name}_section")(data, outdir, metrics)
+            section(name)(data, outdir, metrics)
         except Exception:  # noqa: BLE001 - one broken section must not hide the others
             failures[name] = traceback.format_exc()
             print(f"[chain] {name} FAILED:\n{failures[name]}", flush=True)

@@ -95,6 +95,10 @@ them) and `<ckpt>__test[_<suff>]_plots/`:
 - `fakes/`: predicted vertices without a truth vertex, per event and vs the number of truth vertices;
 - `classification/`: confusion matrix and class probabilities;
 - `regression/`: residuals, predicted vs true and resolution vs true for every regressed property;
+- `resolution/`: for every variable the model predicts (pT, eta, phi, sin/cos phi, lxy, lz, ...) the absolute residual
+  pred - true and the relative one (pred - true) / true, with median, sigma68, mean and standard deviation, plus
+  `overview.png` with all of them (`src/sv/scripts/plot/plot_sv_resolution.py`, also runnable on its own:
+  `--selection loose|perfect|found|targets` picks the vertices, `--range-sigmas` the histogram window);
 - `tracks/`: where the heavy-flavour tracks end up (right vertex / other / fake / unassigned), background tracks
   claimed by a vertex;
 - `metrics.json`, `summary.txt`.

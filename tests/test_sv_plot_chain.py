@@ -1,5 +1,6 @@
 """The SV plot chain (src/sv/scripts/plot) on a synthetic prediction file with the schema of SVPredictionWriter:
-the loader's matching quantities and a full run without a failing section. Torch-free.
+the loader's matching quantities, a full run without a failing section and the resolution section (the absolute and
+relative residuals of every regressed field, its selection fallback, its standalone script). Torch-free.
 
     PYTHONPATH=src python -m pytest tests/test_sv_plot_chain.py -q
 """
@@ -19,6 +20,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src" / "sv" / "scripts" / "plot"))
 sys.path.insert(0, str(REPO / "src"))
 import sv_eval_common as common  # noqa: E402
+import plot_sv_resolution as resolution  # noqa: E402
 from run_sv_plot_chain import run_chain  # noqa: E402
 from sv_eval_common import EvalData  # noqa: E402
 
@@ -116,6 +118,61 @@ def test_chain_runs_without_failures(tmp_path):
     assert metrics["fakes"]["n_fake_vertices"] == 15
     assert "pt" in metrics["regression"] and "confusion_rows_true_cols_pred" in metrics["classification"]
     assert metrics["tracks"]["assigned_to_right_vertex"] > 0.5
-    for section in ("efficiency", "fakes", "classification", "regression", "tracks"):
+    for section in ("efficiency", "fakes", "classification", "regression", "tracks", "resolution"):
         assert any((outdir / section).glob("*.png")), section
-    assert (outdir / "summary.txt").read_text().startswith("SV MaskFormer evaluation")
+    summary = (outdir / "summary.txt").read_text()
+    assert summary.startswith("SV MaskFormer evaluation") and "Resolution (loose-matched target vertices" in summary
+    res = metrics["resolution"]
+    assert res["selection"] == res["selection_requested"] == "loose" and res["n_vertices"] == metrics["regression"]["n_vertices"] > 0
+    assert res["fields"] == ["pt", "eta", "phi", "sinphi", "cosphi", "lxy", "lz"]
+    for field in res["fields"]:
+        for kind in ("abs", "rel"):
+            assert (outdir / "resolution" / f"residual_{kind}_{field}.png").is_file()
+            stats = res[field][kind]
+            assert stats["n"] == res["n_vertices"] and set(stats) >= {"median", "mean", "sigma68", "std", "window", "beyond_window"}
+            assert stats["window"][0] == -stats["window"][1] < 0 and 0 <= stats["beyond_window"] <= 1
+    assert (outdir / "resolution" / "overview.png").is_file()
+    # the synthetic predictions: pT and lxy smeared around the truth, eta drawn independently
+    assert abs(res["pt"]["rel"]["median"]) < 0.1 and res["pt"]["rel"]["sigma68"] < 0.3
+    assert res["eta"]["abs"]["sigma68"] > res["pt"]["rel"]["sigma68"]
+
+
+def test_resolution_residuals():
+    true, pred = np.array([10.0, 0.0, 3.0, -3.0]), np.array([12.0, 1.0, -3.0, 3.0])
+    assert np.allclose(resolution.residual(true, pred, "pt", "abs"), [2.0, 1.0, -6.0, 6.0])
+    rel = resolution.residual(true, pred, "pt", "rel")
+    assert np.isnan(rel[1]) and np.allclose(rel[[0, 2, 3]], [0.2, -2.0, -2.0])
+    wrapped = resolution.residual(true, pred, "phi", "abs")  # -3 - 3 wraps to 2 pi - 6, 3 - (-3) to 6 - 2 pi
+    assert np.allclose(wrapped, [2.0, 1.0, 2 * np.pi - 6, 6 - 2 * np.pi])
+    assert np.allclose(resolution.residual_window(np.array([0.1, 0.1, 0.1]), 5.0), (-0.15, 0.15))  # zero width: 1.5 |median|
+    lo, hi = resolution.residual_window(np.random.default_rng(0).normal(0.0, 1.0, 10000), 5.0)
+    assert lo == -hi and 4.5 < hi < 5.5
+    with pytest.raises(ValueError):
+        resolution.residual(true, pred, "pt", "squared")
+
+
+def test_resolution_selection_fallback(tmp_path):
+    d = EvalData(synthetic_predictions(tmp_path / "pred.parquet"))
+    mask, used = resolution.select_vertices(d, "perfect")
+    assert used == "perfect" and mask.sum() == (d.v_perfect & (d.v_n_sel >= 2)).sum() > 0
+    d.v_loose[:] = False
+    d.v_perfect[:] = False
+    metrics = {}
+    m = resolution.resolution_section(d, str(tmp_path / "plots"), metrics, selection="loose")
+    assert metrics["resolution"] is m and m["selection"] == "found" and m["selection_requested"] == "loose"
+    assert m["n_vertices"] == int((d.v_is_target & (d.v_n_sel >= 2) & d.v_pred_valid).sum()) > 0
+    assert (tmp_path / "plots" / "resolution" / "residual_rel_lxy.png").is_file()
+    assert "no loose-matched vertex" in "\n".join(resolution.summary_lines(m))
+    with pytest.raises(ValueError):
+        resolution.select_vertices(d, "all")
+
+
+def test_resolution_standalone_script(tmp_path, capsys):
+    path = synthetic_predictions(tmp_path / "pred.parquet")
+    outdir = tmp_path / "plots"
+    assert resolution.main(["--input", str(path), "--outdir", str(outdir), "--selection", "targets", "--max-events", "20", "--range-sigmas", "3"]) == 0
+    m = json.loads((outdir / "resolution" / "metrics.json").read_text())
+    assert m["selection"] == "targets" and m["range_sigmas"] == 3.0
+    assert 0 < m["pt"]["abs"]["n"] < m["n_vertices"]  # the missed vertices of the synthetic file carry no prediction (NaN)
+    assert len(list((outdir / "resolution").glob("residual_*.png"))) == 2 * len(m["fields"])
+    assert "Resolution (all target vertices" in capsys.readouterr().out
