@@ -16,7 +16,10 @@ class MaskformerWrapper(ModelWrapper):
     (`particle_*` targets, `pflow_*` outputs, the `classification` and `mask` tasks).
 
     `num_classes` is the number of real object classes; hepattn's `ObjectClassificationTask` puts the null
-    class at index `num_classes`, which is therefore the residual (invalid-object) class here.
+    class at index `num_classes`, which is therefore the residual (invalid-object) class here. `constituent`
+    is the name of the input constituent the masks are predicted over (`node` for the HGCAL datasets, `track`
+    for the SV one): the mask task's `pflow_<constituent>_valid` output and the `particle_<constituent>_valid`
+    and `<constituent>_valid` targets.
     """
 
     def __init__(
@@ -28,16 +31,19 @@ class MaskformerWrapper(ModelWrapper):
         mtl: bool = False,
         nonfinite_dump_dir: str | None = None,
         num_classes: int = 3,
+        constituent: str = "node",
     ):
         """Args:
         nonfinite_dump_dir: where the batch that produced a non-finite loss is saved before
             the AssertionError is raised (see `_guard_losses`); defaults to the trainer's log
             directory.
         num_classes: number of real object classes (the null/residual class is index `num_classes`).
+        constituent: name of the input constituent of the mask task (see the class doc).
         """
         super().__init__(name, model, lrs_config, optimizer, mtl)
         self.num_classes = int(num_classes)
         self.residual_class = self.num_classes
+        self.constituent = str(constituent)
         self.MI = MaskInference
         self.nonfinite_dump_dir = nonfinite_dump_dir
         self._current_batch: tuple[str, int, tuple] | None = None
@@ -68,7 +74,7 @@ class MaskformerWrapper(ModelWrapper):
     def _guard_batch(self, batch, stage, batch_idx):
         self._current_batch = (stage, batch_idx, batch)
         inputs, targets = batch
-        assert_batch_finite(inputs, targets, context=f"{stage} batch {batch_idx}")
+        assert_batch_finite(inputs, targets, context=f"{stage} batch {batch_idx}", constituent=self.constituent)
 
     def aggregate_losses(self, losses, stage=None):
         # hepattn >= 0.2: called by training/validation_step right after model.loss
@@ -144,8 +150,8 @@ class MaskformerWrapper(ModelWrapper):
                     self.log(f"{stage}/{key}_pur", self.pur, **kwargs)
                     self.log(f"{stage}/{key}_eff", self.eff, **kwargs)
                 if task_name == "mask":
-                    pred_masks = task_value["pflow_node_valid"].squeeze()  # remove batch index
-                    truth_masks = labels["particle_node_valid"].squeeze()  # remove batch index
+                    pred_masks = task_value[f"pflow_{self.constituent}_valid"].squeeze()  # remove batch index
+                    truth_masks = labels[f"particle_{self.constituent}_valid"].squeeze()  # remove batch index
 
                     self.mask_metrics(pred_masks, truth_masks, pred_valid, truth_valid, f"{stage}/{key}", **kwargs)
 

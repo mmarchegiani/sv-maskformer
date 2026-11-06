@@ -5,7 +5,7 @@ hepattn is used unmodified; behaviour the models here need and hepattn does not 
 
 import torch
 from hepattn.models.loss import loss_fns
-from hepattn.models.task import IncidenceBasedRegressionTask, ObjectHitMaskTask
+from hepattn.models.task import IncidenceBasedRegressionTask, ObjectHitMaskTask, ObjectRegressionTask
 from hepattn.utils.masks import topk_attn
 from torch import Tensor
 
@@ -157,3 +157,39 @@ class ConfigurableIncidenceBasedRegressionTask(IncidenceBasedRegressionTask):
         proxy_feats = proxy_feats_charged + proxy_feats_neutral
 
         return proxy_feats, is_charged
+
+
+class ConfigurableObjectRegressionTask(ObjectRegressionTask):
+    """ObjectRegressionTask (the regression head reads the query embedding only) with a configurable network and an
+    optional contribution to the matching cost.
+
+    hepattn's `ObjectRegressionTask` builds its head as `Dense(dim, len(fields))` with the default hidden layer and
+    accepts `cost_weight` without ever computing a cost (the base `Task.cost` returns nothing). Here
+
+    - `net` replaces the head (its `output_size` must equal the number of fields); `None` keeps hepattn's;
+    - with `use_cost`, the L1 distance between every query's prediction and every target, averaged over the fields
+      and weighted by `cost_weight`, is added to the matching cost (the targets of invalid objects are NaN and are
+      ignored by the matcher, so they are replaced by 0 in the cost).
+
+    Used by the SV MaskFormer, whose vertex properties (pT, direction, flight distance) are not aggregates of the
+    track inputs, so the incidence-based proxies of the HGCAL regression are not available.
+    """
+
+    def __init__(self, *args, net: torch.nn.Module | None = None, use_cost: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if net is not None:
+            output_size = getattr(net, "output_size", None)
+            if output_size is not None and int(output_size) != self.ndofs:
+                raise ValueError(f"net.output_size ({output_size}) must equal the number of regressed fields ({self.ndofs})")
+            self.net = net
+        self.use_cost = bool(use_cost)
+
+    def cost(self, outputs: dict[str, Tensor], targets: dict[str, Tensor], **kwargs) -> dict[str, Tensor]:
+        if not self.use_cost or self.cost_weight == 0:
+            return {}
+        pred = outputs[self.regression_key].detach().to(torch.float32)  # (B, Q, F)
+        target = torch.stack([targets[self.target_object + "_" + field] for field in self.fields], dim=-1).to(torch.float32)
+        target = torch.nan_to_num(target, nan=0.0)  # (B, T, F); invalid targets are dropped by the matcher
+        with torch.autocast(device_type="cuda", enabled=False):
+            cost = (pred.unsqueeze(2) - target.unsqueeze(1)).abs().mean(-1)  # (B, Q, T)
+        return {f"regression_{self.loss_fn_name}": self.cost_weight * cost}
