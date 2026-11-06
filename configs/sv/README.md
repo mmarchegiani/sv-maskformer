@@ -8,7 +8,7 @@ simulation. The code lives in `src/sv/` (reusing `src/maskformer/`, never `src/h
 
 | config | model | purpose |
 |---|---|---|
-| `gv_tracks.yaml` | dim 256, 4 encoder + 3 decoder layers, 8 heads, 16 queries, AdamW/OneCycle, 50 epochs (the paper's model) | training on GPU |
+| `gv_tracks.yaml` | dim 256, 4 encoder + 3 decoder layers, 8 heads, 16 queries, mask attention, AdamW/OneCycle, 50 epochs (the paper's model) | training on GPU |
 | `gv_tracks_small.yaml` | dim 64, 2 + 2 layers, torch attention, 200 train events, CPU | smoke tests of the pipeline |
 
 ## The problem, mapped onto the MaskFormer
@@ -21,6 +21,7 @@ simulation. The code lives in `src/sv/` (reusing `src/maskformer/`, never `src/h
 | truth track-vertex link | truth association | `track_hadidx`, the index of the vertex each track comes from (-1 for 98% of the tracks) |
 | vertex classes | b, c, null | B, BtoC (c-hadron from a b-hadron), C (c-hadron not from a b-hadron), Other (taus, the rest), null; from `GV_isB`, `GV_isD`, `GV_fromHF` |
 | regression | hadron pT, Lxy (from the beam line), dR to the jet axis | hadron pT, eta, sin/cos phi, lxy and lz (flight distance from the generated primary vertex); also available: l3d, x, y, z |
+| decoder cross-attention | mask attention (each query attends to the tracks of its predicted mask) | the same; hepattn's local strided window (a fixed window of tracks per query over the phi-sorted tracks) is available, see below |
 | losses | 0.5 CE + 2 L1 + 12 mask BCE + 8 mask Dice, Hungarian matching | the same weights; the matching cost is the same combination |
 | evaluation | perfect / loose vertex-finding efficiency vs Lxy, fake rate, fit residuals | the same, plus the track assignment and the class confusion (`maskformer-sv plot`) |
 
@@ -75,16 +76,34 @@ data:
   targets:
     vertex: [pt, eta, sinphi, cosphi, lxy, lz]
   num_objects: 16            # object slots = decoder queries
-  max_tracks: 1024           # padding of the tracks
+  max_tracks: 1024           # events with more tracks are dropped (and the padding, see pad_to_max_tracks)
+  sort_tracks_by: null       # order of the tracks of an event (null: file order; phi, eta ascending; pt descending)
+  pad_to_max_tracks: true    # pad every event to max_tracks; false keeps each event's own length (batches are
+                             # padded to their longest event)
   min_tracks_for_valid: 1    # a vertex is a target with at least this many selected tracks
   track_min_pt: 0.0          # the track selection (all off by default): track_max_abs_eta, track_require_pass_seed,
                              # track_require_high_purity, track_max_per_event (the highest-pT tracks)
   scale_dict_path: params/sv_track_var_transform.yaml           # scales the input features
   vertex_scale_dict_path: params/sv_vertex_var_transform.yaml   # scales the targets; the prediction writer inverts it
+  batch_size: 64
 model:
   constituent: track         # the wrapper's metrics read pflow_track_valid / particle_track_valid
   num_classes: 4            # B, BtoC, C, Other (null = index 4)
+  model:
+    init_args:
+      decoder:
+        mask_attention: true   # the paper's masked cross-attention
 ```
+
+**Alternative decoder cross-attention.** hepattn's local strided window attention (`MaskFormerDecoder` with
+`local_strided_attn: true`, `window_size: 512` (even), `window_wrap: true`) gives query i a fixed window of
+`window_size` tracks around position i x n_tracks / num_queries of the track list instead of the predicted mask.
+hepattn requires `mask_attention: false`, batch size 1, unpadded events (`data.pad_to_max_tracks: false`) and the
+torch or flex attention backend in the decoder layers; the window runs over the dataset's track order, so
+`data.sort_tracks_by: phi` (the window wraps around +-pi; `track_local_idx` maps the tracks back to the file for the
+prediction writer). The encoder keeps its full flash-varlen self-attention either way (hepattn's encoder window
+would exclude the register tokens). With 16 queries and 512 tracks the window covers the whole event for 70% of the
+ttbar events, so it is close to unrestricted cross-attention there.
 
 The vertex is the MaskFormer's object, called `particle` in the task names and the tensors (hepattn's convention,
 shared with the HGCAL pipeline: `particle_valid`, `particle_class`, `particle_track_valid`, `particle_<target>`);

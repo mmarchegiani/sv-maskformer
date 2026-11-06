@@ -54,8 +54,13 @@ data:
 
   # Object slots = decoder queries. Vertices per event on ttbar: mean 2.7, 99% <= 6, max 11.
   num_objects: &num_objects 16
-  # Padded number of tracks (max 847 per ttbar event); events with more selected tracks are dropped.
+  # Maximum number of tracks (max 847 per ttbar event); events with more selected tracks are dropped.
   max_tracks: 1024
+  # Order of the tracks within an event (null: file order; phi, eta ascending; pt descending) and padding of every
+  # event to max_tracks (fixed shapes). With mask attention the order is irrelevant. hepattn's local strided window
+  # attention (see the decoder) needs sort_tracks_by: phi and pad_to_max_tracks: false instead.
+  sort_tracks_by: null
+  pad_to_max_tracks: true
   # A vertex is a target when at least this many selected tracks point to it (91% of the vertices have >= 2, 99% >= 1).
   # The paper evaluates vertices with >= 2 truth tracks but trains with single-track vertices included.
   min_tracks_for_valid: 1
@@ -180,7 +185,11 @@ model:
           attn_kwargs:
             num_heads: 8
 
-      # 3 decoder layers: query self-attention, masked cross-attention to the tracks, track update from the queries
+      # 3 decoder layers: query self-attention, masked cross-attention to the tracks (the paper's mechanism: each
+      # query attends to the tracks of the mask it predicted at the previous layer, mask_attention_threshold below),
+      # track update from the queries. hepattn's alternative, a fixed window per query over the phi-sorted tracks:
+      # mask_attention: false, local_strided_attn: true, window_size: 512 (even), window_wrap: true, with
+      # data.batch_size: 1, data.sort_tracks_by: phi, data.pad_to_max_tracks: false.
       decoder:
         num_decoder_layers: 3
         num_queries: *num_objects

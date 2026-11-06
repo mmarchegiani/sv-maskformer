@@ -125,6 +125,13 @@ def test_sv_configs_are_consistent(path):
     assert tasks["classification"]["init_args"]["num_classes"] == cfg["model"]["num_classes"] == NUM_CLASSES == 4
     assert tasks["classification"]["init_args"]["net"]["init_args"]["output_size"] == NUM_CLASSES + 1
     assert len(tasks["classification"]["init_args"]["class_weights"]) == NUM_CLASSES
+    # the decoder's cross-attention: mask attention or hepattn's local strided window, with what hepattn asserts
+    decoder = model["decoder"]
+    assert decoder["mask_attention"] != bool(decoder.get("local_strided_attn", False))
+    if decoder.get("local_strided_attn"):
+        assert data["batch_size"] == 1 and data["pad_to_max_tracks"] is False and data["sort_tracks_by"] in ("phi", "eta")
+        assert decoder["window_size"] % 2 == 0
+        assert decoder["decoder_layer_config"].get("attn_kwargs", {}).get("attn_type", "torch") in ("torch", "flex")
 
 
 def test_params_readme_documents_the_missing_dicts():

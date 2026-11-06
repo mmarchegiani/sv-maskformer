@@ -115,6 +115,55 @@ def test_unknown_inputs_and_missing_dict_entries(sample):
         SVDataset(str(parquet), inputs=INPUTS, targets=TARGETS, scale_dict_path=vertex_dict, vertex_scale_dict_path=vertex_dict)
 
 
+def test_sorted_unpadded_items_and_collate(sample):
+    """sort_tracks_by orders the tracks of every event (the truth mask and the file index follow), pad_to_max_tracks
+    False gives each event its own length and the data module's collate pads a batch to its longest event."""
+    parquet = sample[0]
+    df = ak.from_arrow(__import__("pyarrow.parquet").parquet.read_table(parquet))
+    ds = make(sample, sort_tracks_by="phi", pad_to_max_tracks=False)
+    assert ds.counts["sort_tracks_by"] == "phi" and ds.counts["pad_to_max_tracks"] is False
+    for i in range(len(ds)):
+        inputs, targets = ds[i]
+        n = int(ds.n_tracks[i])
+        assert inputs["track_features"].shape == (n, len(INPUTS["track"])) and inputs["track_valid"].all()
+        assert targets["particle_track_valid"].shape == (8, n)
+        phi = inputs["track_phi"].numpy()
+        assert np.all(np.diff(phi) >= 0)
+        # the file index follows the sort: kinematics and truth read back from the file match
+        ts, te = ds.track_offsets[i], ds.track_offsets[i + 1]
+        local = ds.track_local_idx[ts:te]
+        assert np.allclose(phi, ak.to_numpy(df["track"]["track_phi"][i])[local])
+        hadidx = ak.to_numpy(df["track"]["track_hadidx"][i])[local]
+        for j in range(int(ds.n_vertices[i])):
+            if targets["particle_valid"][j]:
+                assert np.array_equal(targets["particle_track_valid"][j].numpy(), hadidx == j)
+    by_pt = make(sample, sort_tracks_by="pt")
+    ts, te = by_pt.track_offsets[0], by_pt.track_offsets[1]
+    assert np.all(np.diff(by_pt.track_pt[ts:te].numpy()) <= 0)
+    with pytest.raises(ValueError, match="sort_tracks_by"):
+        make(sample, sort_tracks_by="dz")
+
+    parquet, track_dict, vertex_dict, _, _ = sample
+    dm = SVDataModule(batch_size=4, num_workers=0, num_train=-1, num_val=-1, num_test=-1, scale_dict_path=track_dict,
+                      vertex_scale_dict_path=vertex_dict, inputs=INPUTS, targets=TARGETS, train_path=str(parquet), valid_path=str(parquet),
+                      test_path=str(parquet), num_objects=8, max_tracks=64, pin_memory=False, sort_tracks_by="phi", pad_to_max_tracks=False)
+
+    class FakeTrainer:
+        is_global_zero = True
+        log_dir = None
+
+    dm.trainer = FakeTrainer()
+    dm.setup("test")
+    inputs, targets = next(iter(dm.test_dataloader()))
+    counts = dm.test_dset.n_tracks[:4]
+    longest = int(counts.max())
+    assert inputs["track_features"].shape == (4, longest, len(INPUTS["track"])) and targets["particle_track_valid"].shape == (4, 8, longest)
+    assert inputs["track_valid"].sum(1).tolist() == counts.tolist() and targets["track_valid"].equal(inputs["track_valid"])
+    assert not targets["particle_track_valid"][~inputs["track_valid"].unsqueeze(1).expand(-1, 8, -1)].any()
+    from maskformer.utils.finite_checks import assert_batch_finite
+    assert_batch_finite(inputs, targets, constituent="track")
+
+
 def test_candidate_vertex_selection_is_checked(sample, tmp_path, capsys):
     """A file whose vertices fail the converter's candidate selection is refused; one converted before the selection
     existed (no GV_nSelectedDaughters) is accepted with a note."""

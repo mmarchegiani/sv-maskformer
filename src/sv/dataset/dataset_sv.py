@@ -8,14 +8,18 @@ MaskFormer and the repository's `MaskformerWrapper` expect. The object is called
 target_object, shared with the HGCAL pipeline), the constituent `track`:
 
     inputs
-      track_features      (max_tracks, F)  the scaled input features, in the order of `inputs.track`
-      track_valid         (max_tracks,)    padding mask
-      track_pt/eta/phi    (max_tracks,)    raw kinematics (for the positional encoding and the prediction writer)
+      track_features      (L, F)           the scaled input features, in the order of `inputs.track`
+      track_valid         (L,)             padding mask
+      track_pt/eta/phi    (L,)             raw kinematics (for the positional encoding and the prediction writer)
     targets
       particle_valid        (num_objects,)             the vertex is a target (see min_tracks_for_valid)
       particle_class        (num_objects,)             0 B, 1 BtoC, 2 C, 3 Other; RESIDUAL_CLASS for non-targets and padding
-      particle_track_valid  (num_objects, max_tracks)  the mask target: the tracks of each target vertex (track_hadidx)
-      track_valid           (max_tracks,)              the padding mask again (hepattn's mask task reads it here)
+      particle_track_valid  (num_objects, L)           the mask target: the tracks of each target vertex (track_hadidx)
+      track_valid           (L,)                       the padding mask again (hepattn's mask task reads it here)
+
+L = `max_tracks` (`pad_to_max_tracks`, the default: fixed shapes) or the event's own number of tracks (the data
+module's collate then pads a batch to its longest event). The tracks keep the file order unless `sort_tracks_by`
+orders them (phi, eta or pT): hepattn's local strided window attention in the decoder runs over this order.
       particle_<target>     (num_objects,)             scaled regression targets, NaN beyond the event's vertices
       event_number          ()                         row of the event in the concatenated test file(s)
 
@@ -57,6 +61,8 @@ from sv.dataset.features import PV_KEYS, TRACK_FEATURES, VERTEX_TARGETS, branche
 
 #: raw track branches always loaded (kinematics for the positional encoding / writer, the truth link, the selections)
 RAW_TRACK_BRANCHES = ("track_pt", "track_eta", "track_phi", "track_passSeed", "track_isHighPurity", TRACK_TRUTH_IDX)
+#: `sort_tracks_by` keys: the branch and the sign of the sort (ascending phi / eta, descending pT)
+SORT_KEYS = {"phi": ("track_phi", 1.0), "eta": ("track_eta", 1.0), "pt": ("track_pt", -1.0)}
 #: raw vertex branches always loaded (classes, counts)
 RAW_VERTEX_BRANCHES = ("GV_pt", "GV_isB", "GV_isD", "GV_fromHF")
 
@@ -93,6 +99,8 @@ class SVDataset(Dataset):
         track_require_pass_seed: bool = False,
         track_require_high_purity: bool = False,
         track_max_per_event: int | None = None,
+        sort_tracks_by: str | None = None,
+        pad_to_max_tracks: bool = True,
         strict_scaling: bool = True,
         verbose: bool = False,
     ):
@@ -110,6 +118,12 @@ class SVDataset(Dataset):
         min_tracks_for_valid: a vertex is a target only with at least this many selected tracks pointing to it.
         track_min_pt, track_max_abs_eta, track_require_pass_seed, track_require_high_purity, track_max_per_event:
             the track selection (all off by default); `track_max_per_event` keeps the highest-pT tracks.
+        sort_tracks_by: order of the tracks within an event: None (file order), "phi" or "eta" (ascending) or "pt"
+            (descending). The decoder's local strided window attention (hepattn `local_strided_attn`) runs over this
+            order, so it wants "phi" (the window wraps around +-pi) or "eta"; `track_local_idx` keeps the file index.
+        pad_to_max_tracks: pad every event to `max_tracks` tracks (fixed shapes). False gives each event its own
+            length; the data module's collate pads a batch to its longest event and with batch size 1 nothing is
+            padded, which hepattn's local strided attention needs (a window on padding only would attend to nothing).
         strict_scaling: a feature/target missing from its scale dict is an error (else identity with a warning).
         """
         super().__init__()
@@ -126,6 +140,10 @@ class SVDataset(Dataset):
         self.track_require_pass_seed = bool(track_require_pass_seed)
         self.track_require_high_purity = bool(track_require_high_purity)
         self.track_max_per_event = None if track_max_per_event is None else int(track_max_per_event)
+        if sort_tracks_by is not None and sort_tracks_by not in SORT_KEYS:
+            raise ValueError(f"sort_tracks_by must be one of {sorted(SORT_KEYS)} or None, got {sort_tracks_by!r}")
+        self.sort_tracks_by = sort_tracks_by
+        self.pad_to_max_tracks = bool(pad_to_max_tracks)
         self.verbose = verbose
 
         self.feature_names = [str(f) for f in inputs.get("track", [])]
@@ -263,6 +281,8 @@ class SVDataset(Dataset):
                 "tracks_kept": int(n_selected[0]), "tracks_loaded": int(n_selected[1]),
             },
             "min_tracks_for_valid": self.min_tracks_for_valid,
+            "sort_tracks_by": self.sort_tracks_by,
+            "pad_to_max_tracks": self.pad_to_max_tracks,
             "cutflow": cutflow,
             "selected": {
                 "events": int(passing.sum()),
@@ -276,8 +296,14 @@ class SVDataset(Dataset):
             "tracks_per_vertex": multiplicity(n_tracks_per_vertex[keep_vertex]),
         }
 
-        # ---- derived, scaled features (flat over the surviving events)
+        # ---- derived, scaled features (flat over the surviving events), the tracks of an event in the requested order
         track_table = {b: v[keep_track] for b, v in track_table.items()}
+        local_idx = local_idx[keep_track]
+        if self.sort_tracks_by is not None:
+            branch, sign = SORT_KEYS[self.sort_tracks_by]
+            order = np.lexsort((sign * track_table[branch].astype(np.float64), track_event[keep_track]))  # by event, then key
+            track_table = {b: v[order] for b, v in track_table.items()}
+            local_idx = local_idx[order]
         derived = derive(TRACK_FEATURES, self.feature_names, track_table)
         columns = []
         for name in self.feature_names:
@@ -292,7 +318,7 @@ class SVDataset(Dataset):
         self.track_eta = torch.as_tensor(track_table["track_eta"], dtype=torch.float32)
         self.track_phi = torch.as_tensor(track_table["track_phi"], dtype=torch.float32)
         self.track_hadidx = torch.as_tensor(track_table[TRACK_TRUTH_IDX], dtype=torch.int64)
-        self.track_local_idx = local_idx[keep_track]
+        self.track_local_idx = local_idx
 
         vertex_table = {b: v[keep_vertex] for b, v in vertex_table.items()}
         derived = derive(VERTEX_TARGETS, self.target_names, vertex_table)
@@ -349,15 +375,16 @@ class SVDataset(Dataset):
     def __getitem__(self, idx):
         ts, te = self.track_offsets[idx], self.track_offsets[idx + 1]
         vs, ve = self.vertex_offsets[idx], self.vertex_offsets[idx + 1]
-        n_tracks, n_vertices = te - ts, ve - vs
+        n_tracks, n_vertices = int(te - ts), int(ve - vs)
+        length = self.max_tracks if self.pad_to_max_tracks else n_tracks
 
-        features = torch.zeros(self.max_tracks, self.track_features.shape[1], dtype=torch.float32)
+        features = torch.zeros(length, self.track_features.shape[1], dtype=torch.float32)
         features[:n_tracks] = self.track_features[ts:te]
-        track_valid = torch.zeros(self.max_tracks, dtype=torch.bool)
+        track_valid = torch.zeros(length, dtype=torch.bool)
         track_valid[:n_tracks] = True
 
         def pad(values):
-            out = torch.zeros(self.max_tracks, dtype=torch.float32)
+            out = torch.zeros(length, dtype=torch.float32)
             out[:n_tracks] = values[ts:te]
             return out
 
@@ -375,7 +402,7 @@ class SVDataset(Dataset):
         particle_class = torch.full((self.num_objects,), RESIDUAL_CLASS, dtype=torch.int64)
         particle_class[:n_vertices] = torch.where(is_target, self.vertex_class[vs:ve], torch.full_like(is_target, RESIDUAL_CLASS, dtype=torch.int64))
 
-        mask = torch.zeros(self.num_objects, self.max_tracks, dtype=torch.bool)
+        mask = torch.zeros(self.num_objects, length, dtype=torch.bool)
         hadidx = self.track_hadidx[ts:te]
         linked = hadidx >= 0
         mask[hadidx[linked], torch.arange(n_tracks)[linked]] = True
@@ -393,6 +420,34 @@ class SVDataset(Dataset):
             targets[f"particle_{name}"] = values
         targets["event_number"] = torch.tensor(self.event_number[idx], dtype=torch.int64)
         return inputs, targets
+
+
+#: tensors with a track axis, and which axis it is, for the collate
+TRACK_AXIS = {"track_features": 0, "track_valid": 0, "track_pt": 0, "track_eta": 0, "track_phi": 0, "particle_track_valid": 1}
+
+
+def _pad_axis(tensor: torch.Tensor, axis: int, length: int) -> torch.Tensor:
+    if tensor.shape[axis] == length:
+        return tensor
+    shape = list(tensor.shape)
+    shape[axis] = length - tensor.shape[axis]
+    return torch.cat([tensor, torch.zeros(shape, dtype=tensor.dtype)], dim=axis)
+
+
+def collate_sv(batch: list) -> tuple[dict, dict]:
+    """Stacks the items of SVDataset; the tensors with a track axis (TRACK_AXIS) are padded with zeros / False to the
+    longest event of the batch, so that `pad_to_max_tracks: false` works with any batch size (and is a plain stack
+    with fixed padding)."""
+    inputs, targets = zip(*batch)
+    length = max(item["track_valid"].shape[0] for item in inputs)
+
+    def stack(items, key):
+        values = [item[key] for item in items]
+        if key in TRACK_AXIS:
+            values = [_pad_axis(v, TRACK_AXIS[key], length) for v in values]
+        return torch.stack(values)
+
+    return {k: stack(inputs, k) for k in inputs[0]}, {k: stack(targets, k) for k in targets[0]}
 
 
 class SVDataModule(L.LightningDataModule):
@@ -426,6 +481,8 @@ class SVDataModule(L.LightningDataModule):
         track_require_pass_seed: bool = False,
         track_require_high_purity: bool = False,
         track_max_per_event: int | None = None,
+        sort_tracks_by: str | None = None,
+        pad_to_max_tracks: bool = True,
         strict_scaling: bool = True,
         verbose: bool = False,
     ):
@@ -469,6 +526,8 @@ class SVDataModule(L.LightningDataModule):
             track_require_pass_seed=track_require_pass_seed,
             track_require_high_purity=track_require_high_purity,
             track_max_per_event=track_max_per_event,
+            sort_tracks_by=sort_tracks_by,
+            pad_to_max_tracks=pad_to_max_tracks,
             strict_scaling=strict_scaling,
             verbose=verbose,
         )
@@ -504,7 +563,7 @@ class SVDataModule(L.LightningDataModule):
 
     def get_dataloader(self, dataset: SVDataset, shuffle: bool):
         return DataLoader(dataset=dataset, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=shuffle,
-                          pin_memory=self.pin_memory)
+                          pin_memory=self.pin_memory, collate_fn=collate_sv)
 
     def train_dataloader(self):
         return self.get_dataloader(self.train_dset, shuffle=True)
@@ -516,4 +575,4 @@ class SVDataModule(L.LightningDataModule):
         return self.get_dataloader(self.test_dset, shuffle=False)
 
 
-__all__ = ["NUM_CLASSES", "RESIDUAL_CLASS", "SVDataModule", "SVDataset"]
+__all__ = ["NUM_CLASSES", "RESIDUAL_CLASS", "SVDataModule", "SVDataset", "collate_sv"]

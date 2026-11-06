@@ -306,4 +306,5 @@ on both sites.
   `test_scale_transform.py`, `test_plot_chain.py` and the SV ones `test_sv_features.py`, `test_sv_cli.py`,
   `test_sv_convert.py` (a synthetic ntuple written with uproot), `test_sv_plot_chain.py` run without torch
   (`PYTHONPATH=src:$PYTHONPATH python -m pytest tests/test_cli.py ...` in an LCG view); the rest, including
-  `test_sv_dataset.py`, needs the container (`PYTHONPATH=src python -m pytest tests`).
+  `test_sv_dataset.py` and `test_regression_task.py` (the SV regression task's loss and cost), needs the container
+  (`PYTHONPATH=src python -m pytest tests`).

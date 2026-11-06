@@ -169,7 +169,9 @@ class ConfigurableObjectRegressionTask(ObjectRegressionTask):
     - `net` replaces the head (its `output_size` must equal the number of fields); `None` keeps hepattn's;
     - with `use_cost`, the L1 distance between every query's prediction and every target, averaged over the fields
       and weighted by `cost_weight`, is added to the matching cost (the targets of invalid objects are NaN and are
-      ignored by the matcher, so they are replaced by 0 in the cost).
+      ignored by the matcher, so they are replaced by 0 in the cost);
+    - the loss of a batch without any valid object is 0 instead of hepattn's NaN (the mean over no object), which
+      happens at batch size 1 for an event without a target.
 
     Used by the SV MaskFormer, whose vertex properties (pT, direction, flight distance) are not aggregates of the
     track inputs, so the incidence-based proxies of the HGCAL regression are not available.
@@ -183,6 +185,12 @@ class ConfigurableObjectRegressionTask(ObjectRegressionTask):
                 raise ValueError(f"net.output_size ({output_size}) must equal the number of regressed fields ({self.ndofs})")
             self.net = net
         self.use_cost = bool(use_cost)
+
+    def loss(self, outputs: dict[str, Tensor], targets: dict[str, Tensor], layer_outputs=None) -> dict[str, Tensor]:
+        if not targets[self.target_object + "_valid"].any():
+            # no object to regress in this batch: a zero that keeps the graph, not NaN
+            return {self.loss_fn_name: 0.0 * outputs[self.regression_key].sum()}
+        return super().loss(outputs, targets, layer_outputs)
 
     def cost(self, outputs: dict[str, Tensor], targets: dict[str, Tensor], **kwargs) -> dict[str, Tensor]:
         if not self.use_cost or self.cost_weight == 0:

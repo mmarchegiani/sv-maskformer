@@ -17,6 +17,8 @@ data:
     vertex: [pt, eta, sinphi, cosphi, lxy, lz]
   num_objects: &num_objects 16
   max_tracks: 1024
+  sort_tracks_by: null
+  pad_to_max_tracks: true
   min_tracks_for_valid: 1
   track_min_pt: 0.0
   track_max_abs_eta: null
