@@ -2,7 +2,7 @@
 
 Machine-learning reconstruction of HGCAL showers: MaskFormer models (built on [hepattn](https://github.com/mmarchegiani/hepattn))
 that cluster the objects of an event (rechits, layer clusters or TICL tracksters) into particles and regress
-their properties, trained and evaluated on CMS simulation. Everything runs through one command, `maskformers`.
+their properties, trained and evaluated on CMS simulation. Everything runs through one command, `maskformer`.
 
 ## Setup
 
@@ -15,10 +15,10 @@ source setup_env.sh        # opens a shell in the image; -v prints the image and
 > [!WARNING]
 > The image on `/cvmfs` is rebuilt at every commit on `master`, with some latency: a warning is printed when
 > it is older than the checkout. `setup_env.sh` puts this checkout's `src/` first on `PYTHONPATH`, so the
-> code you edit is the code that runs, including the `maskformers` command.
+> code you edit is the code that runs, including the `maskformer` command.
 
 Outside the image, in a virtual environment: `pip install -e .` installs the package, its dependencies
-(`pyproject.toml`) and the `maskformers` command. Without installing, run `PYTHONPATH=src python -m maskformers ...`
+(`pyproject.toml`) and the `maskformer` command. Without installing, run `PYTHONPATH=src python -m hgcal ...`
 from the repository root.
 
 ## Datasets
@@ -33,16 +33,16 @@ bash fetch_datasets.sh [BASE_DIR]    # training taus and single-particle evaluat
 ## Usage
 
 ```bash
-maskformers --help                   # the commands; maskformers <command> --help for the options
+maskformer --help                   # the commands; maskformer <command> --help for the options
 
 # train: the config selects the model, the data and the normalization parameters
-maskformers train --config configs/trackster_clue3dhigh/simtrackster.yaml
+maskformer train --config configs/trackster_clue3dhigh/simtrackster.yaml
 
 # evaluate a run: predictions, losses and the evaluation plots next to its best checkpoint
-maskformers evaluate --config logs/<run>/config.yaml --test-path /path/to/test.parquet
+maskformer evaluate --config logs/<run>/config.yaml --test-path /path/to/test.parquet
 
 # plot a prediction file again (no GPU or torch needed, e.g. in an LCG view)
-maskformers plot --input logs/<run>/ckpts/<ckpt>__test_<suffix>.parquet --outdir plots/<run> --config logs/<run>/config.yaml
+maskformer plot --input logs/<run>/ckpts/<ckpt>__test_<suffix>.parquet --outdir plots/<run> --config logs/<run>/config.yaml
 ```
 
 Any Lightning argument can be appended to `train` and `evaluate`, e.g. `--trainer.max_epochs 5` or `--data.num_workers 0`.
@@ -51,7 +51,7 @@ Any Lightning argument can be appended to `train` and `evaluate`, e.g. `--traine
 
 | | |
 |---|---|
-| [src/scripts/README.md](src/scripts/README.md) | every command and option, checkpoints, evaluation outputs and plots, job submission on falcon and lxplus, energy-resolution tooling |
+| [src/README.md](src/README.md) | the source layout (`maskformer/` general, `hgcal/` HGCAL-specific), every command and option, checkpoints, evaluation outputs and plots, job submission on falcon and lxplus, energy-resolution tooling |
 | [configs/README.md](configs/README.md) | the model configs, grouped by input type (`rechit/`, `layercluster/`, `trackster_clue3dhigh/`, `toycalo/`, `test/`), each folder with its own README |
 | [params/README.md](params/README.md) | the normalization parameters of the inputs and targets, and how to refit them |
 | [docs/](docs/) | design notes (normalization fix) and review findings |

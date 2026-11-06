@@ -1,30 +1,49 @@
-# Scripts and the `maskformers` command
+# The `maskformer` command and the source layout
 
-Every task runs through `maskformers`, a [click](https://click.palletsprojects.com) command (`src/maskformers/cli.py`)
-whose sub-commands wrap the scripts of this folder:
+## Package layout
+
+`src/` holds two packages:
+
+| package | contents | may import |
+|---|---|---|
+| `maskformer/` | the **general** MaskFormer code: the Lightning wrapper of hepattn's model (`models/wrapper.py`), the task overrides and the sectored decoder (`models/`), the checkpoint, early-stopping and prediction-writer base callbacks (`callbacks/`), parquet/path/finiteness utilities (`utils/`), and the generic entry points: the Lightning-CLI wrappers for training and evaluation, the click building blocks and the config migration (`scripts/`) | hepattn, torch, lightning |
+| `hgcal/` | everything **HGCAL-specific**: the dataset and its collection knowledge (`dataset/`), the prediction writers that write the HGCAL collections back into the input file (`callbacks/`), the `maskformer` command line, the training/evaluation bindings, the plot chain, the normalization fits and the toy-calorimeter tools (`scripts/`) | `maskformer` |
+
+The rule, enforced by `tests/test_import_rule.py`: `hgcal` imports `maskformer`, `maskformer` never imports
+`hgcal`. A new experiment reuses `maskformer` as is and provides its own dataset, writers and bindings next to
+`hgcal`. Class names follow the split: the general classes carry no experiment prefix (`MaskformerWrapper`,
+`MaskformerCLI`, `RowwiseObjectHitMaskTask`, `ConfigurableIncidenceBasedRegressionTask`, `PredictionWriterBase`),
+the HGCAL ones keep theirs (`HGCDataset`, `HGCDataModule`, `HGCPredictionWriter`, `SectoredPredictionWriter`).
+
+## The command
+
+Every task runs through `maskformer`, a [click](https://click.palletsprojects.com) command (`src/hgcal/scripts/cli.py`,
+built from the pieces of `src/maskformer/scripts/cli.py`):
 
 | command | wraps | purpose |
 |---|---|---|
-| `maskformers train` | `train/train_maskformer.py` | train a MaskFormer through the Lightning CLI |
-| `maskformers evaluate` | `evaluate/evaluate_maskformer.py` | run a trained model on a test file: predictions, losses, the plot chain |
-| `maskformers plot` | `plot/run_plot_chain.py` | the plot chain on a prediction file (torch-free) |
-| `maskformers plot-toycalo` | `plot/plot_toycalo_*.py` | toy-calorimeter exploration plots |
-| `maskformers norm-par` | `dataset/compute_norm_par.py` | fit the normalization parameters into `params/` ([params/README.md](../../params/README.md)) |
-| `maskformers verify-norm` | `dataset/verify_norm.py` | check a config's normalization through `HGCDataset` |
+| `maskformer train` | `hgcal/scripts/train.py` -> `maskformer/scripts/train.py` | train a MaskFormer through the Lightning CLI |
+| `maskformer evaluate` | `hgcal/scripts/evaluate.py` -> `maskformer/scripts/evaluate.py` | run a trained model on a test file: predictions, losses, the plot chain |
+| `maskformer plot` | `hgcal/scripts/plot/run_plot_chain.py` | the plot chain on a prediction file (torch-free) |
+| `maskformer plot-toycalo` | `hgcal/scripts/plot/plot_toycalo_*.py` | toy-calorimeter exploration plots |
+| `maskformer norm-par` | `hgcal/scripts/dataset/compute_norm_par.py` | fit the normalization parameters into `params/` ([params/README.md](../params/README.md)) |
+| `maskformer verify-norm` | `hgcal/scripts/dataset/verify_norm.py` | check a config's normalization through `HGCDataset` |
+| `maskformer migrate-config` | `maskformer/scripts/migrate_config.py` | rewrite run configs saved before the maskformer/hgcal split |
 
-`maskformers --help` lists the commands, `maskformers <command> --help` the options. The scripts also run on
-their own (`python src/scripts/train/train_maskformer.py fit --config ...`, `python src/scripts/plot/run_plot_chain.py --input ...`),
+`maskformer --help` lists the commands, `maskformer <command> --help` the options. The entry points also run on
+their own (`python src/hgcal/scripts/train.py fit --config ...`, `python src/hgcal/scripts/plot/run_plot_chain.py --input ...`),
 with `src/` on `PYTHONPATH`.
 
 ## Environments
 
-- **Container** (`source setup_env.sh`): everything, GPU included. The image installs the package, so `maskformers`
-  is on `PATH` once the image has been rebuilt after the commit; `setup_env.sh` exports `PYTHONPATH=<checkout>/src`
+- **Container** (`source setup_env.sh`): everything, GPU included. The image installs the package, so `maskformer`
+  is on `PATH` once the image has been rebuilt after the commit (an image built before the split still has the
+  old `maskformers` script: use `python -m hgcal` until then); `setup_env.sh` exports `PYTHONPATH=<checkout>/src`
   into the shell, so the checkout's code (and CLI) is what runs. Until the image is rebuilt, and in every job
-  script, the equivalent form is `python -m maskformers ...` with `PYTHONPATH=<checkout>/src`.
+  script, the equivalent form is `python -m hgcal ...` with `PYTHONPATH=<checkout>/src`.
 - **LCG view** (`source /cvmfs/sft.cern.ch/lcg/views/LCG_109/x86_64-el9-gcc13-opt/setup.sh`): no torch, but
-  enough for `maskformers plot`, `plot-toycalo` and the torch-free tests. Run
-  `PYTHONPATH=src:$PYTHONPATH python -m maskformers ...` (keep the view's own `PYTHONPATH`).
+  enough for `maskformer plot`, `plot-toycalo` and the torch-free tests. Run
+  `PYTHONPATH=src:$PYTHONPATH python -m hgcal ...` (keep the view's own `PYTHONPATH`).
 - **A virtual environment**: `pip install -e .` installs the dependencies of `pyproject.toml` and the command.
 
 ## Lightning arguments (`train`, `evaluate`)
@@ -38,16 +57,16 @@ yourself: the commands add them. `--help` prints the command's own options, `--l
 Lightning help of the sub-command.
 
 Every `scale_dict_path` of the parsed config (the data module's two dicts and the regression task's) is resolved
-before anything is instantiated (`scripts/lightning_cli.py`, `utils.paths`): `params/<name>.yaml` is found from any
+before anything is instantiated (`maskformer/scripts/lightning_cli.py`, `maskformer.utils.paths`): `params/<name>.yaml` is found from any
 directory, and the `configs/<name>.yaml` of runs from before November 2026 is mapped onto `params/` with one
 `[paths] ... using params/...` line in the log. The resolved path is what the run's `config.yaml` records.
 
-## `maskformers train`
+## `maskformer train`
 
 ```bash
-maskformers train --config configs/trackster_clue3dhigh/simtrackster.yaml
-maskformers train -c configs/rechit/mergedsimcluster.yaml --debug --max-epochs 1        # a quick pass
-maskformers train -c configs/trackster_clue3dhigh/simtrackster.yaml --data.data_dir <dir> --data.split '[0.8,0.1,0.1]'
+maskformer train --config configs/trackster_clue3dhigh/simtrackster.yaml
+maskformer train -c configs/rechit/mergedsimcluster.yaml --debug --max-epochs 1        # a quick pass
+maskformer train -c configs/trackster_clue3dhigh/simtrackster.yaml --data.data_dir <dir> --data.split '[0.8,0.1,0.1]'
 ```
 
 | option | Lightning argument | |
@@ -68,11 +87,11 @@ is selected by its config (`data.n_sectors` and the sectored class paths); the c
 ### Checkpoints and early stopping
 
 Checkpoints go to `logs/<run>/ckpts/`. hepattn's `Checkpoint` callback writes every epoch as
-`epoch=NNN-val_loss=X.XXXXX.ckpt`; the `BestCheckpoint` callback (`src/callbacks/best_checkpoint.py`) keeps, next
+`epoch=NNN-val_loss=X.XXXXX.ckpt`; the `BestCheckpoint` callback (`src/maskformer/callbacks/best_checkpoint.py`) keeps, next
 to them, a single copy of the best epoch so far as `best-epoch=NNN-val_loss=X.XXXXX.ckpt`, replacing the previous
 `best-*` file whenever a later epoch lowers `val/loss`.
 
-The `EarlyStopping` callback (`src/callbacks/early_stopping.py`, a thin layer over Lightning's) ends the training
+The `EarlyStopping` callback (`src/maskformer/callbacks/early_stopping.py`, a thin layer over Lightning's) ends the training
 before `trainer.max_epochs` when the total validation loss `val/loss` has not decreased for `patience` consecutive
 epochs (a NaN/inf `val/loss` also stops it). Both are enabled in every training config; remove the `EarlyStopping`
 entry to always train for `max_epochs` (the YAML is in [configs/README.md](../../configs/README.md#checkpoints-and-early-stopping)).
@@ -82,25 +101,25 @@ entry to always train for `max_epochs` (the YAML is in [configs/README.md](../..
 A NaN in a single event turns the epoch-mean `val/loss` into NaN while the on-step `train/loss` (logged every
 `log_every_n_steps` batches) can still look fine, and an L1 regression term with a NaN target even keeps finite
 gradients, so such a run trains on silently. The pipeline therefore asserts finiteness where a bad value can enter
-(`src/dataset/finite_checks.py`):
+(`src/maskformer/utils/finite_checks.py`):
 
 - `HGCDataset`: the scale dicts (finite shift, non-zero scale), every raw branch of the pair once per file, the
   domain of the `log`/`log1p` energy transforms, the energy shares of the TICL association table (finite, in
   [0, 1], summing to at most 1 per trackster), and per event the scaled node inputs, the scaled particle targets
   and the incidence matrix (finite, in [0, 1], node columns or particle rows summing to at most 1).
-- `HGCMaskformer`: every batch on arrival (valid nodes, valid particles, the dense incidence target) and every
+- `MaskformerWrapper`: every batch on arrival (valid nodes, valid particles, the dense incidence target) and every
   loss term after `model.loss`. The first non-finite loss raises an `AssertionError` naming the terms and the
   event numbers, after saving the batch (`inputs`, `targets`, `losses`) to
   `<log_dir>/nonfinite_<stage>_step<N>_batch<M>.pt` (or `--model.nonfinite_dump_dir`) so it can be replayed on a CPU.
 
 `tests/test_finite_checks.py` exercises the checks on synthetic tensors.
 
-## `maskformers evaluate`
+## `maskformer evaluate`
 
 ```bash
-maskformers evaluate --config logs/<run>/config.yaml --test-path /path/to/test.parquet
-maskformers evaluate -c logs/<run>/config.yaml --test-path <file> --plot-max-events 50          # smoke test of the plots
-maskformers evaluate -c <model_dir>/config.yaml --root-dir <model_dir> --test-path <file> --attn-type torch \
+maskformer evaluate --config logs/<run>/config.yaml --test-path /path/to/test.parquet
+maskformer evaluate -c logs/<run>/config.yaml --test-path <file> --plot-max-events 50          # smoke test of the plots
+maskformer evaluate -c <model_dir>/config.yaml --root-dir <model_dir> --test-path <file> --attn-type torch \
     --data.data_dir null --data.split null                                                      # a run copied from another cluster
 ```
 
@@ -123,11 +142,11 @@ maskformers evaluate -c <model_dir>/config.yaml --root-dir <model_dir> --test-pa
 The defaults reproduce what the job scripts always passed (full precision, a single worker). Outputs:
 
 - a parquet file next to the checkpoint, `<ckpt_name>__test[_<suff>].parquet`, with the same schema as the input
-  test file plus the prediction branches (the `HGCPredictionWriter` docstring in `src/callbacks/prediction_writer.py`
+  test file plus the prediction branches (the `HGCPredictionWriter` docstring in `src/hgcal/callbacks/prediction_writer.py`
   lists them), and `<ckpt_name>__test[_<suff>]_losses.json` with the mean test loss per task;
 - the plots of the chain below, in `<ckpt_name>__test[_<suff>]_plots/` (or `--plot-dir`). The chain runs as a
   subprocess of the same interpreter (`HGCAL_PLOT_PYTHON` selects another one, e.g. one with `mplhep`); if it fails
-  the evaluation still succeeds and the commands to rerun it by hand (the script and `maskformers plot`) are printed.
+  the evaluation still succeeds and the commands to rerun it by hand (the script and `maskformer plot`) are printed.
 - a sectored-decoder run (`SectoredPredictionWriter`) gets its predictions and losses, and the plots are skipped
   with a note: the chain reads the per-particle schema only.
 
@@ -155,14 +174,29 @@ The defaults reproduce what the job scripts always passed (full precision, a sin
   clusters as rings sized by their energy, nodes as dots;
 - `energy/`: the energy deep-dive with `energy_metrics.json`/`energy_summary.txt`.
 
-## `maskformers plot`
+## `maskformer migrate-config`
+
+```bash
+maskformer migrate-config logs/<run>/config.yaml            # rewrites in place, keeps config.yaml.bak
+maskformer migrate-config --dry-run <model_dir>/config.yaml  # only reports the changes
+```
+
+A run config saved before the maskformer/hgcal split (November 2026) names the class paths of the old layout
+(`callbacks.HGCPredictionWriter`, `callbacks.best_checkpoint.BestCheckpoint`, `models.tasks.*`, ...) and, if older
+still, `configs/hgcal_*` scale dicts. `train` and `evaluate` refuse such a config with a message naming this command
+(a stale installed copy of the old packages could otherwise be imported silently); `migrate-config` rewrites the
+file line by line (class paths through the map in `hgcal/scripts/legacy.py`, `configs/<name>` -> `params/<name>`),
+keeps the original as `<file>.bak`, re-parses the result and is idempotent. Run it once per model folder on EOS or
+XRootD before evaluating runs from before the split.
+
+## `maskformer plot`
 
 The chain by hand, on any prediction file. It needs only awkward, numpy, pyarrow and matplotlib (`mplhep` is
 optional), so it runs in an LCG view:
 
 ```bash
-maskformers plot --input <ckpt_dir>/<ckpt>__test_<suff>.parquet --outdir plots/<run> --config logs/<run>/config.yaml
-maskformers plot --input <file> --outdir <dir> --scale-dict params/hgcal_trackster_clue3dhigh_var_transform.yaml --node-features e,eta,cosphi,sinphi,r
+maskformer plot --input <ckpt_dir>/<ckpt>__test_<suff>.parquet --outdir plots/<run> --config logs/<run>/config.yaml
+maskformer plot --input <file> --outdir <dir> --scale-dict params/hgcal_trackster_clue3dhigh_var_transform.yaml --node-features e,eta,cosphi,sinphi,r
 ```
 
 `--config <run>/config.yaml` takes from the run's `data:` block the collections, the association table and
@@ -179,24 +213,24 @@ The plot modules (`plot_maskformer_eval.py`, `energy_investigation.py`, `cluster
 `topocluster_features.py`, `event_reconstruction.py`, `event_display.py`) can also be run on their own with
 `--input`/`--outdir`; `hgcal_eval_common.py` holds the shared loader (`EvalData`), the pair detection and the style.
 
-## `maskformers plot-toycalo`
+## `maskformer plot-toycalo`
 
 ```bash
-maskformers plot-toycalo --input data/photons_100GeV_eta20.parquet --outdir plots/toycalo [--max-events N] [--n-display 3] [--only rechits ...]
+maskformer plot-toycalo --input data/photons_100GeV_eta20.parquet --outdir plots/toycalo [--max-events N] [--n-display 3] [--only rechits ...]
 ```
 
 runs the four toy-calorimeter exploration scripts (`plot_toycalo_rechits.py`, `plot_toycalo_hit_particle.py`,
 `plot_toycalo_particles.py`, `plot_toycalo_gun.py`) into `<outdir>/{rechits,hit_particle,particles,gun_parameters}/`;
 `--only` selects sections.
 
-## `maskformers norm-par` and `maskformers verify-norm`
+## `maskformer norm-par` and `maskformer verify-norm`
 
 Fitting the normalization parameters and checking a config's normalization end to end: see
 [params/README.md](../../params/README.md).
 
 ## Jobs (`jobs/`)
 
-The job scripts run `python -m maskformers ...` inside the CVMFS image with `PYTHONPATH=<checkout>/src`, from the
+The job scripts run `python -m hgcal ...` inside the CVMFS image with `PYTHONPATH=<checkout>/src`, from the
 checkout root.
 
 | script | site | usage |
@@ -239,25 +273,28 @@ on both sites.
 
 | script | purpose |
 |---|---|
-| `dataset/root_to_parquet.py` | merges TICL-dumper ROOT files with nanoML ROOT files into one parquet file (`--TICLfiles`, `--nanoMLfiles`, `--outputDir`, `--outputFile`) |
-| `dataset/ticl_to_parquet.py` | dumps the `ticlDumper` trees of a ROOT file to parquet (edit the file list inside) |
-| `dataset/read_HGCDataset.py` | loads a parquet file through `HGCDataset` with the data block of a config (`--config`, default `configs/test/layercluster_simcluster.yaml`) and optionally plots the incidence matrices |
-| `plot/check_energy_scaling.py` | one-off diagnosis of the energy scaling of layer clusters with the rechit dict |
-| `plot/plot3d.py` | legacy GravNet 3D clustering plots (needs `cmspepr_hgcal_core`) |
-| `train/train_taus_integrated_noise.py` | legacy GravNet / object-condensation training |
-| `jets/` | fastjet clustering example (`jets/instructions.md`) |
+| `hgcal/scripts/dataset/read_HGCDataset.py` | loads a parquet file through `HGCDataset` with the data block of a config (`--config`, default `configs/test/layercluster_simcluster.yaml`) and optionally plots the incidence matrices |
+| `hgcal/scripts/plot/check_energy_scaling.py` | one-off diagnosis of the energy scaling of layer clusters with the rechit dict |
+| `hgcal/scripts/jets/` | fastjet clustering example (`jets/instructions.md`) |
 
 ## Developer notes
 
-- `src/scripts/` and its sub-folders are packages (`scripts.train`, `scripts.evaluate`, `scripts.plot`,
-  `scripts.dataset`), so the CLI imports them; they are installed with the rest (`pyproject.toml` finds every
-  package under `src/`, and `maskformers` is the console script).
-- `scripts/lightning_cli.py` holds `HGCCLI`, hepattn's CLI plus the scale-dict path resolution; the training script
-  uses it directly, the evaluation's `EvalCLI` derives from it.
+- Both packages are found by `pyproject.toml` (`packages.find` under `src/`, `maskformer*` and `hgcal*`); the console
+  script is `maskformer = hgcal.scripts.cli:cli`. The old top-level packages (`models`, `dataset`, `callbacks`,
+  `utils`, `scripts`, `maskformers`) no longer exist: an image built before the split still ships them, which is why
+  `train`/`evaluate` refuse legacy class paths instead of letting Python find the stale copies.
+- `maskformer/scripts/lightning_cli.py` holds `MaskformerCLI`, hepattn's CLI plus the scale-dict path resolution and
+  the legacy check; `maskformer/scripts/train.py` and `evaluate.py` take the experiment's `model_class` /
+  `datamodule_class` (and a `cli_class`), `hgcal/scripts/train.py` and `evaluate.py` bind `MaskformerWrapper`,
+  `HGCDataModule` and `HGCEvalCLI` (the plot chain). The HGCAL click group adds its own commands to the generic
+  `train`/`evaluate` pieces of `maskformer/scripts/cli.py`.
+- The prediction writers derive from `maskformer.callbacks.PredictionWriterBase` (output paths, un-scaling, loss
+  summary, the parquet write) and implement `regression_transforms`, `reset_buffers`, `collect_batch` and
+  `build_output`; `plot_chain_readable = False` tells the evaluation not to plot (the sectored writer).
 - The plot modules insert their own folder into `sys.path` and import their siblings as top-level modules
   (`from hgcal_eval_common import ...`), so that `run_plot_chain.py` also runs by file path under another interpreter.
-  Never import them package-qualified (`scripts.plot.hgcal_eval_common`): there would be two module objects and
+  Never import them package-qualified (`hgcal.scripts.plot.hgcal_eval_common`): there would be two module objects and
   `isinstance` checks between them would fail. `run_plot_chain` (imported by the CLI) is the one exception by design.
-- Tests: `tests/test_cli.py`, `test_paths.py`, `test_configs.py`, `test_scale_transform.py` and `test_plot_chain.py`
-  run without torch (`PYTHONPATH=src:$PYTHONPATH python -m pytest tests/test_cli.py ...` in an LCG view); the rest
-  needs the container (`PYTHONPATH=src python -m pytest tests`).
+- Tests: `tests/test_cli.py`, `test_paths.py`, `test_configs.py`, `test_import_rule.py`, `test_migrate_config.py`,
+  `test_scale_transform.py` and `test_plot_chain.py` run without torch (`PYTHONPATH=src:$PYTHONPATH python -m pytest tests/test_cli.py ...`
+  in an LCG view); the rest needs the container (`PYTHONPATH=src python -m pytest tests`).
