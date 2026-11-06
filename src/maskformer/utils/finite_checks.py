@@ -131,14 +131,18 @@ def _event_list(event_numbers, idx: torch.Tensor, limit: int = 10) -> str:
     return f"{len(flagged)} events ({label}: {shown})"
 
 
-def assert_batch_finite(inputs: Mapping[str, torch.Tensor], targets: Mapping[str, torch.Tensor], context: str = "") -> None:
+def assert_batch_finite(
+    inputs: Mapping[str, torch.Tensor], targets: Mapping[str, torch.Tensor], context: str = "", constituent: str = "node"
+) -> None:
     """Check one collated batch, as handed to the model, for non-finite values.
 
     Node inputs are checked on the valid nodes, particle targets on the valid particles (the
     padded regression targets are NaN by construction) and the dense incidence target on every
     entry and its range. The message lists the offending keys and the event numbers.
+    `constituent` names the input constituent whose `<constituent>_valid` target holds the
+    node padding mask ("node" for the HGCAL datasets, "track" for the SV one).
     """
-    node_valid = targets["node_valid"].bool()
+    node_valid = targets[f"{constituent}_valid"].bool()
     particle_valid = targets["particle_valid"].bool()
     event_numbers = targets.get("event_number")
     batch_size = node_valid.shape[0]
