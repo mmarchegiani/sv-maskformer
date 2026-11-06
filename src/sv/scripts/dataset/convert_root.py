@@ -14,7 +14,7 @@ so the splits of several files can be given to the data module as directories). 
                                              fallback: the production vertex of a prompt vertex, then 0)
     track                                    struct of the track branches (sv.dataset.collections.TRACK_BRANCHES)
     GV                                       struct of the vertex branches plus the derived truth fields
-                                             GV_class, GV_category, GV_nTracks, GV_nSelectedDaughters, GV_lxy, GV_lz,
+                                             GV_class, GV_nTracks, GV_nSelectedDaughters, GV_lxy, GV_lz,
                                              GV_l3d (from the PV), GV_flight_xy, GV_flight_3d (from the hadron's
                                              production vertex)
     GVDaughters, RejectedGV, trackPair       optional (--keep)
@@ -62,7 +62,6 @@ from sv.dataset.collections import (  # noqa: E402
     VERTEX_COLLECTION,
     VERTEX_DERIVED,
     select_daughters,
-    vertex_category,
     vertex_class,
     vertex_selection_flags,
 )
@@ -170,8 +169,7 @@ def vertex_truth_fields(chunk, pv: dict[str, ak.Array]) -> dict[str, ak.Array]:
     n_gv = ak.num(chunk["GV_pt"], axis=1)
     counts = ak.to_numpy(n_gv)
     flat = lambda name: ak.to_numpy(ak.flatten(chunk[name]))  # noqa: E731
-    cls = vertex_class(flat("GV_isB"), flat("GV_isD"))
-    cat = vertex_category(flat("GV_isB"), flat("GV_isD"), flat("GV_fromHF"))
+    cls = vertex_class(flat("GV_isB"), flat("GV_isD"), flat("GV_fromHF"))
 
     # tracks pointing to each vertex (track_hadidx indexes the event's GV list)
     hadidx = chunk[TRACK_TRUTH_IDX]
@@ -195,7 +193,6 @@ def vertex_truth_fields(chunk, pv: dict[str, ak.Array]) -> dict[str, ak.Array]:
 
     return {
         "GV_class": jag(cls, np.int32),
-        "GV_category": jag(cat, np.int32),
         "GV_nTracks": jag(n_per_vertex, np.int32),
         "GV_lxy": jag(lxy, np.float32),
         "GV_lz": jag(lz, np.float32),

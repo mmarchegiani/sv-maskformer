@@ -46,8 +46,8 @@ Collections (as measured on ttbar_BTV_1.root):
             the vertices (`lxy`, `lz`) are measured from it, see sv.dataset.features.
 
 The vertex classes of the model (hepattn's `ObjectClassificationTask`, null class at index NUM_CLASSES):
-0 b-hadron (`GV_isB`), 1 c-hadron (`GV_isD`, prompt or from a b), 2 other (taus, rare baryons). For the
-evaluation the c-hadrons are further split by `GV_fromHF` (CATEGORY_NAMES).
+0 B (`GV_isB`), 1 BtoC (`GV_isD` and `GV_fromHF`: a c-hadron from a b-hadron decay), 2 C (`GV_isD`, not from a
+b-hadron), 3 Other (taus and the rest). On the train split: 32% / 45% / 23% / 0.4% of the vertices.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ VERTEX_BRANCHES = (
     "GV_maxDaughterPairDeltaR",
 )
 #: truth fields the converter adds to the vertex collection (torch-free derivations, see `vertex_truth_fields`)
-VERTEX_DERIVED = ("GV_class", "GV_category", "GV_nTracks", "GV_nSelectedDaughters",
+VERTEX_DERIVED = ("GV_class", "GV_nTracks", "GV_nSelectedDaughters",
                   "GV_lxy", "GV_lz", "GV_l3d", "GV_flight_xy", "GV_flight_3d")
 
 # ---- candidate vertex selection -------------------------------------------------------------------------------
@@ -144,33 +144,22 @@ GENPART_HARD_STATUS = 21
 
 # ---- vertex classes --------------------------------------------------------------------------------------------
 
-#: the object classes: b-hadron, c-hadron, other. hepattn's ObjectClassificationTask puts the null class at index
-#: NUM_CLASSES, which is therefore the residual (not a target / fake) class, as in the HGCAL dataset.
-CLASS_NAMES = ("b", "c", "other")
+#: the object classes: B (b-hadron), BtoC (c-hadron from a b-hadron decay), C (c-hadron not from a b-hadron), Other
+#: (taus and the rest). hepattn's ObjectClassificationTask puts the null class at index NUM_CLASSES, which is
+#: therefore the residual (not a target / fake) class, as in the HGCAL dataset.
+CLASS_NAMES = ("B", "BtoC", "C", "Other")
 NUM_CLASSES = len(CLASS_NAMES)
 RESIDUAL_CLASS = NUM_CLASSES
-CLASS_B, CLASS_C, CLASS_OTHER = range(NUM_CLASSES)
-
-#: finer truth categories, for the evaluation only: the c-hadrons split by their origin
-CATEGORY_NAMES = ("b", "c from b", "prompt c", "other")
-CATEGORY_B, CATEGORY_C_FROM_B, CATEGORY_C_PROMPT, CATEGORY_OTHER = range(len(CATEGORY_NAMES))
+CLASS_B, CLASS_BTOC, CLASS_C, CLASS_OTHER = range(NUM_CLASSES)
 
 
-def vertex_class(is_b, is_d) -> np.ndarray:
-    """Class index of each vertex from the `GV_isB` / `GV_isD` flags: b (0), c (1), other (2)."""
-    is_b = np.asarray(is_b).astype(bool)
-    is_d = np.asarray(is_d).astype(bool)
-    return np.where(is_b, CLASS_B, np.where(is_d, CLASS_C, CLASS_OTHER)).astype(np.int64)
-
-
-def vertex_category(is_b, is_d, from_hf) -> np.ndarray:
-    """Evaluation category of each vertex: b (0), c from b (1), prompt c (2), other (3)."""
+def vertex_class(is_b, is_d, from_hf) -> np.ndarray:
+    """Class index of each vertex from the `GV_isB` / `GV_isD` / `GV_fromHF` flags: B (0), BtoC (1), C (2),
+    Other (3)."""
     is_b = np.asarray(is_b).astype(bool)
     is_d = np.asarray(is_d).astype(bool)
     from_hf = np.asarray(from_hf).astype(bool)
-    return np.where(
-        is_b, CATEGORY_B, np.where(is_d & from_hf, CATEGORY_C_FROM_B, np.where(is_d, CATEGORY_C_PROMPT, CATEGORY_OTHER))
-    ).astype(np.int64)
+    return np.where(is_b, CLASS_B, np.where(is_d & from_hf, CLASS_BTOC, np.where(is_d, CLASS_C, CLASS_OTHER))).astype(np.int64)
 
 
 def track_counts_per_vertex(hadidx: np.ndarray, n_vertices: int) -> np.ndarray:

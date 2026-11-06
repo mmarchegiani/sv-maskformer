@@ -26,6 +26,7 @@ from sv.dataset.collections import (  # noqa: E402
     VERTEX_DERIVED,
     select_daughters,
     select_vertices,
+    vertex_class,
 )
 from sv.scripts.dataset import compute_norm_par as norm  # noqa: E402
 from sv.scripts.dataset import convert_root as conv  # noqa: E402
@@ -170,8 +171,8 @@ def test_convert_layout_pv_and_derived_fields(root_file, tmp_path):
         hadidx = ak.to_numpy(df["track"]["track_hadidx"][i])
         expected = np.bincount(hadidx[hadidx >= 0], minlength=n_gv[i])[: n_gv[i]] if n_gv[i] else []
         assert ak.to_numpy(gv["GV_nTracks"][i]).tolist() == list(expected)
-    cls = ak.to_numpy(ak.flatten(gv["GV_class"])); is_b = ak.to_numpy(ak.flatten(gv["GV_isB"]))
-    assert np.all(cls[is_b == 1] == 0) and np.all(cls[is_b == 0] == 1)
+    cls, is_b, is_d, from_hf = (ak.to_numpy(ak.flatten(gv[b])) for b in ("GV_class", "GV_isB", "GV_isD", "GV_fromHF"))
+    assert np.array_equal(cls, vertex_class(is_b, is_d, from_hf)) and set(cls.tolist()) == {0, 1, 2}  # B, BtoC, C in the synthetic file
 
 
 def test_convert_split_and_optional_collections(root_file, tmp_path):

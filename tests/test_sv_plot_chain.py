@@ -25,7 +25,7 @@ from run_sv_plot_chain import run_chain  # noqa: E402
 from sv_eval_common import EvalData  # noqa: E402
 
 common.SAVE_PDF = False
-PROBS = ("b", "c", "other", "null")
+PROBS = ("B", "BtoC", "C", "Other", "null")
 FIELDS = ("pt", "eta", "sinphi", "cosphi", "lxy", "lz")
 
 
@@ -33,7 +33,7 @@ def synthetic_predictions(path, n_events=40, seed=3):
     """Events with 0-4 vertices and 30-60 tracks; the first vertex of each event is reconstructed perfectly, the second
     loosely (one track lost, one background track added), the others missed; one fake per odd event."""
     rng = np.random.default_rng(seed)
-    gv = {k: [] for k in ("GV_pt", "GV_eta", "GV_phi", "GV_x", "GV_y", "GV_z", "GV_isB", "GV_isD", "GV_fromHF", "GV_class", "GV_category", "GV_nTracks",
+    gv = {k: [] for k in ("GV_pt", "GV_eta", "GV_phi", "GV_x", "GV_y", "GV_z", "GV_isB", "GV_isD", "GV_fromHF", "GV_class", "GV_nTracks",
                          "GV_lxy", "GV_lz", "GV_l3d", "GV_flight_xy", "GV_nDaughters", "GV_is_target", "GV_n_tracks_selected", "GV_pred_valid", "GV_pred_class",
                          "GV_pred_n_tracks", "GV_pred_n_correct", *[f"GV_pred_prob_{p}" for p in PROBS], *[f"GV_pred_{f}" for f in FIELDS], "GV_pred_phi")}
     tr = {k: [] for k in ("track_pt", "track_eta", "track_hadidx", "track_label", "track_selected", "track_pred_match_idx", "track_pred_slot", "track_pred_prob")}
@@ -42,14 +42,14 @@ def synthetic_predictions(path, n_events=40, seed=3):
     for i in range(n_events):
         k = int(rng.integers(0, 5)); n = int(rng.integers(30, 61))
         is_b = (rng.random(k) < 0.4).astype(np.int32); is_d = 1 - is_b; from_hf = ((rng.random(k) < 0.5) & (is_d == 1)).astype(np.int32)
-        cls = np.where(is_b, 0, 1).astype(np.int32); cat = np.where(is_b, 0, np.where(from_hf, 1, 2)).astype(np.int32)
+        cls = np.where(is_b, 0, np.where(from_hf, 1, 2)).astype(np.int32)
         hadidx = np.full(n, -1, np.int32)
         for j in range(k):
             hadidx[j * 3: j * 3 + 3] = j  # three tracks per vertex
         n_tracks = np.array([3] * k, np.int32)
         pt = rng.uniform(10, 100, k); lxy = rng.uniform(0.01, 3, k)
         match = hadidx.copy(); slot = hadidx.copy(); prob = np.where(hadidx >= 0, 0.9, 0.0).astype(np.float32)
-        pred_valid = np.zeros(k, bool); pred_n = np.zeros(k, np.int32); pred_correct = np.zeros(k, np.int32); pred_class = np.full(k, 3, np.int32)
+        pred_valid = np.zeros(k, bool); pred_n = np.zeros(k, np.int32); pred_correct = np.zeros(k, np.int32); pred_class = np.full(k, 4, np.int32)
         if k >= 1:
             pred_valid[0] = True; pred_n[0] = 3; pred_correct[0] = 3; pred_class[0] = cls[0]
         if k >= 2:  # loose: 2 of 3 tracks, plus one background track
@@ -58,11 +58,11 @@ def synthetic_predictions(path, n_events=40, seed=3):
             match[n - 1] = 1; slot[n - 1] = 1; prob[n - 1] = 0.6
         for j in range(2, k):  # missed: tracks unassigned
             match[j * 3: j * 3 + 3] = -1; slot[j * 3: j * 3 + 3] = -1; prob[j * 3: j * 3 + 3] = 0.0
-        probs = np.zeros((k, 4), np.float32)
+        probs = np.zeros((k, 5), np.float32)
         for j in range(k):
             probs[j, pred_class[j]] = 0.8; probs[j] += 0.05; probs[j] /= probs[j].sum()
         for key, val in (("GV_pt", pt), ("GV_eta", rng.uniform(-2, 2, k)), ("GV_phi", rng.uniform(-3, 3, k)), ("GV_x", lxy), ("GV_y", np.zeros(k)), ("GV_z", rng.normal(0, 2, k)),
-                         ("GV_isB", is_b), ("GV_isD", is_d), ("GV_fromHF", from_hf), ("GV_class", cls), ("GV_category", cat), ("GV_nTracks", n_tracks), ("GV_lxy", lxy),
+                         ("GV_isB", is_b), ("GV_isD", is_d), ("GV_fromHF", from_hf), ("GV_class", cls), ("GV_nTracks", n_tracks), ("GV_lxy", lxy),
                          ("GV_lz", rng.normal(0, 1, k)), ("GV_l3d", lxy * 1.2), ("GV_flight_xy", lxy), ("GV_nDaughters", n_tracks), ("GV_is_target", np.ones(k, bool)),
                          ("GV_n_tracks_selected", n_tracks), ("GV_pred_valid", pred_valid), ("GV_pred_class", pred_class), ("GV_pred_n_tracks", pred_n),
                          ("GV_pred_n_correct", pred_correct)):

@@ -11,8 +11,8 @@ not targets, see SVDataset.min_tracks_for_valid):
   GV_is_target            the vertex was a target of the model
   GV_n_tracks_selected    its tracks after the dataset's track selection (the truth mask)
   GV_pred_valid           its matched query predicts a vertex
-  GV_pred_class           predicted class (0 b, 1 c, 2 other, 3 null)
-  GV_pred_prob_<class>    class probabilities (b, c, other, null)
+  GV_pred_class           predicted class (0 B, 1 BtoC, 2 C, 3 Other, 4 null)
+  GV_pred_prob_<class>    class probabilities (B, BtoC, C, Other, null)
   GV_pred_n_tracks        tracks in the predicted mask of the matched query
   GV_pred_n_correct       tracks shared by the predicted and the truth mask (recall = n_correct / n_tracks_selected,
                           purity = n_correct / pred_n_tracks)

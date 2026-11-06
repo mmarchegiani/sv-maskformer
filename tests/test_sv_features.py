@@ -70,13 +70,13 @@ def test_vertex_targets_are_measured_from_the_primary_vertex():
     assert np.allclose(ft.invert_fn("log", ft.apply_fn("log", x[1:])), x[1:])
 
 
-def test_vertex_classes_and_categories():
-    is_b = np.array([1, 0, 0, 0])
-    is_d = np.array([0, 1, 1, 0])
-    from_hf = np.array([0, 1, 0, 0])
-    assert col.vertex_class(is_b, is_d).tolist() == [col.CLASS_B, col.CLASS_C, col.CLASS_C, col.CLASS_OTHER]
-    assert col.vertex_category(is_b, is_d, from_hf).tolist() == [col.CATEGORY_B, col.CATEGORY_C_FROM_B, col.CATEGORY_C_PROMPT, col.CATEGORY_OTHER]
-    assert col.RESIDUAL_CLASS == col.NUM_CLASSES == len(col.CLASS_NAMES) == 3
+def test_vertex_classes():
+    is_b = np.array([1, 0, 0, 0, 1])
+    is_d = np.array([0, 1, 1, 0, 0])
+    from_hf = np.array([0, 1, 0, 1, 1])  # a tau from a b-hadron stays Other, a b-hadron from a b-hadron stays B
+    assert col.vertex_class(is_b, is_d, from_hf).tolist() == [col.CLASS_B, col.CLASS_BTOC, col.CLASS_C, col.CLASS_OTHER, col.CLASS_B]
+    assert col.CLASS_NAMES == ("B", "BtoC", "C", "Other")
+    assert col.RESIDUAL_CLASS == col.NUM_CLASSES == len(col.CLASS_NAMES) == 4
 
 
 def test_track_counts_per_vertex():

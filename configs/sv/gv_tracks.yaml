@@ -135,7 +135,7 @@ model:
     skip_scheduler: false
   mtl: false
   # the wrapper's metrics: 3 real classes (null = index 3), masks over the `track` constituent
-  num_classes: 3
+  num_classes: 4
   constituent: track
 
   model:
@@ -212,7 +212,7 @@ model:
                 input_object: query
                 output_object: pflow
                 target_object: particle
-                num_classes: 3  # b, c, other (+ null = index 3)
+                num_classes: 4  # B, BtoC, C, Other (+ null = index 4)
                 losses:
                   object_ce: 0.5
                 costs:
@@ -221,12 +221,12 @@ model:
                   class_path: hepattn.models.Dense
                   init_args:
                     input_size: *dim
-                    output_size: 4  # num_classes + 1 (null)
+                    output_size: 5  # num_classes + 1 (null)
                     hidden_layers: [256, 256, 128]
                 # ~83% of the 16 queries are null for a ttbar event: down-weight the null class
                 null_weight: 0.5
-                # [b, c, other]: 32% / 67% / 0.4% of the vertices
-                class_weights: [1.0, 1.0, 1.0]
+                # [B, BtoC, C, Other]: 32% / 45% / 23% / 0.4% of the vertices
+                class_weights: [1.0, 1.0, 1.0, 1.0]
                 mask_queries: false
                 has_intermediate_loss: true
 

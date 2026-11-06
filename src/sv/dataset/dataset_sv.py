@@ -13,7 +13,7 @@ target_object, shared with the HGCAL pipeline), the constituent `track`:
       track_pt/eta/phi    (max_tracks,)    raw kinematics (for the positional encoding and the prediction writer)
     targets
       particle_valid        (num_objects,)             the vertex is a target (see min_tracks_for_valid)
-      particle_class        (num_objects,)             0 b, 1 c, 2 other; RESIDUAL_CLASS for non-targets and padding
+      particle_class        (num_objects,)             0 B, 1 BtoC, 2 C, 3 Other; RESIDUAL_CLASS for non-targets and padding
       particle_track_valid  (num_objects, max_tracks)  the mask target: the tracks of each target vertex (track_hadidx)
       track_valid           (max_tracks,)              the padding mask again (hepattn's mask task reads it here)
       particle_<target>     (num_objects,)             scaled regression targets, NaN beyond the event's vertices
@@ -51,7 +51,6 @@ from sv.dataset.collections import (
     VERTEX_COLLECTION,
     VERTEX_SELECTION,
     select_vertices,
-    vertex_category,
     vertex_class,
 )
 from sv.dataset.features import PV_KEYS, TRACK_FEATURES, VERTEX_TARGETS, branches_needed, derive
@@ -305,8 +304,7 @@ class SVDataset(Dataset):
             scaled = transform.transform(raw)
             assert_finite(f"scaled vertex target '{name}'", scaled, context=str(self.filepath))
             self.vertex_targets[name] = scaled
-        self.vertex_class = torch.as_tensor(vertex_class(vertex_table["GV_isB"], vertex_table["GV_isD"]), dtype=torch.int64)
-        self.vertex_category = vertex_category(vertex_table["GV_isB"], vertex_table["GV_isD"], vertex_table["GV_fromHF"])
+        self.vertex_class = torch.as_tensor(vertex_class(vertex_table["GV_isB"], vertex_table["GV_isD"], vertex_table["GV_fromHF"]), dtype=torch.int64)
         self.vertex_is_target = torch.as_tensor(is_target[keep_vertex], dtype=torch.bool)
         self.vertex_n_tracks = n_tracks_per_vertex[keep_vertex].astype(np.int64)
 

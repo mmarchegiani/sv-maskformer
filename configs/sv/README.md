@@ -19,7 +19,7 @@ simulation. The code lives in `src/sv/` (reusing `src/maskformer/`, never `src/h
 | track features | d0, z0, pT fraction, eta/phi relative to the jet, jet pT/eta | global kinematics, impact parameters and significances, dz, hit content, quality flags (`sv.dataset.features.TRACK_FEATURES`) |
 | objects (queries) | b- and c-hadron decay vertices, 5 queries | the `GV` collection after the candidate selection below: b-/c-hadron (and 3-prong tau) decay vertices; mean 2.7, max 11 per event; 16 queries |
 | truth track-vertex link | truth association | `track_hadidx`, the index of the vertex each track comes from (-1 for 98% of the tracks) |
-| vertex classes | b, c, null | b, c, other (taus, rare baryons), null |
+| vertex classes | b, c, null | B, BtoC (c-hadron from a b-hadron), C (c-hadron not from a b-hadron), Other (taus, the rest), null; from `GV_isB`, `GV_isD`, `GV_fromHF` |
 | regression | hadron pT, Lxy (from the beam line), dR to the jet axis | hadron pT, eta, sin/cos phi, lxy and lz (flight distance from the generated primary vertex); also available: l3d, x, y, z |
 | losses | 0.5 CE + 2 L1 + 12 mask BCE + 8 mask Dice, Hungarian matching | the same weights; the matching cost is the same combination |
 | evaluation | perfect / loose vertex-finding efficiency vs Lxy, fake rate, fit residuals | the same, plus the track assignment and the class confusion (`maskformer-sv plot`) |
@@ -83,7 +83,7 @@ data:
   vertex_scale_dict_path: params/sv_vertex_var_transform.yaml   # scales the targets; the prediction writer inverts it
 model:
   constituent: track         # the wrapper's metrics read pflow_track_valid / particle_track_valid
-  num_classes: 3
+  num_classes: 4            # B, BtoC, C, Other (null = index 4)
 ```
 
 The vertex is the MaskFormer's object, called `particle` in the task names and the tensors (hepattn's convention,
@@ -107,7 +107,7 @@ vertex from the Hungarian-matched query, the track assignment, the fake vertices
 them) and `<ckpt>__test[_<suff>]_plots/`:
 
 - `efficiency/`: perfect (track recall = purity = 1) and loose (both >= 0.5) vertex-finding efficiency vs lxy, pT,
-  truth track multiplicity, vertices per event, per category (b, c from b, prompt c, other); recall/purity;
+  truth track multiplicity, vertices per event, per class (B, BtoC, C, Other); recall/purity;
 - `fakes/`: predicted vertices without a truth vertex, per event and vs the number of truth vertices;
 - `classification/`: confusion matrix and class probabilities;
 - `regression/`: residuals, predicted vs true and resolution vs true for every regressed property;

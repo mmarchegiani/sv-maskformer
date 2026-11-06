@@ -105,6 +105,7 @@ def test_sv_configs_are_consistent(path):
     """The SV configs: inputs/targets known to the feature registry and present in the dicts, sizes in sync."""
     sys.path.insert(0, str(REPO / "src"))
     from sv.dataset.features import TRACK_FEATURES, VERTEX_TARGETS
+    from sv.dataset.collections import NUM_CLASSES
 
     cfg = yaml.safe_load(path.read_text())
     data = cfg["data"]
@@ -121,8 +122,9 @@ def test_sv_configs_are_consistent(path):
     assert tasks["regression"]["init_args"]["fields"] == targets
     assert tasks["regression"]["init_args"]["net"]["init_args"]["output_size"] == len(targets)
     assert tasks["mask"]["init_args"]["input_constituent"] == "track" and cfg["model"]["constituent"] == "track"
-    assert tasks["classification"]["init_args"]["num_classes"] == cfg["model"]["num_classes"] == 3
-    assert tasks["classification"]["init_args"]["net"]["init_args"]["output_size"] == 4
+    assert tasks["classification"]["init_args"]["num_classes"] == cfg["model"]["num_classes"] == NUM_CLASSES == 4
+    assert tasks["classification"]["init_args"]["net"]["init_args"]["output_size"] == NUM_CLASSES + 1
+    assert len(tasks["classification"]["init_args"]["class_weights"]) == NUM_CLASSES
 
 
 def test_params_readme_documents_the_missing_dicts():

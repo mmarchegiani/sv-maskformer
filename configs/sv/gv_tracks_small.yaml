@@ -82,7 +82,7 @@ model:
     weight_decay: 1e-5
     skip_scheduler: false
   mtl: false
-  num_classes: 3
+  num_classes: 4
   constituent: track
 
   model:
@@ -152,7 +152,7 @@ model:
                 input_object: query
                 output_object: pflow
                 target_object: particle
-                num_classes: 3
+                num_classes: 4
                 losses:
                   object_ce: 0.5
                 costs:
@@ -161,10 +161,10 @@ model:
                   class_path: hepattn.models.Dense
                   init_args:
                     input_size: *dim
-                    output_size: 4
+                    output_size: 5
                     hidden_layers: [64, 32]
                 null_weight: 0.5
-                class_weights: [1.0, 1.0, 1.0]
+                class_weights: [1.0, 1.0, 1.0, 1.0]
                 mask_queries: false
                 has_intermediate_loss: true
 

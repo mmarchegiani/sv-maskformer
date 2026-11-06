@@ -24,7 +24,7 @@ import pyarrow.parquet as pq
 _SRC_DIR = str(Path(__file__).resolve().parents[3])
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
-from sv.dataset.collections import CATEGORY_NAMES, CLASS_NAMES, RESIDUAL_CLASS  # noqa: E402,F401
+from sv.dataset.collections import CLASS_NAMES, RESIDUAL_CLASS  # noqa: E402,F401
 
 # --------------------------------------------------------------------------- #
 # style
@@ -70,8 +70,8 @@ def savefig(fig, outdir, name):
     plt.close(fig)
 
 
-def category_color(category: int) -> str:
-    return CMAP_10[category % len(CMAP_10)]
+def class_color(cls: int) -> str:
+    return CMAP_10[cls % len(CMAP_10)]
 
 
 # --------------------------------------------------------------------------- #
@@ -125,7 +125,7 @@ class EvalData:
     """One prediction file, flattened.
 
     Vertices (one entry per truth vertex of the file; `v_*` arrays, `v_event` the event of each):
-      v_pt, v_eta, v_phi, v_lxy, v_lz, v_flight_xy (truth, from the file), v_class, v_category, v_n_tracks (tracks
+      v_pt, v_eta, v_phi, v_lxy, v_lz, v_flight_xy (truth, from the file), v_class (B, BtoC, C, Other), v_n_tracks (tracks
       pointing to it in the file), v_n_sel (after the dataset's selection), v_is_target,
       v_pred_valid, v_pred_class, v_pred_prob (n, C+1), v_pred_n, v_pred_correct, v_recall, v_purity, v_perfect,
       v_loose, v_pred_<field> for every regressed field (un-scaled).
@@ -149,7 +149,6 @@ class EvalData:
         V, T = f"{vertex_collection}_", f"{track_collection}_"
         self.regressed_fields = sorted({f[len(V) + 5:] for f in gv.fields if f.startswith(V + "pred_") and f[len(V) + 5:] in ("pt", "eta", "sinphi", "cosphi", "phi", "lxy", "lz", "l3d", "x", "y", "z")})
         self.class_names = list(CLASS_NAMES)
-        self.category_names = list(CATEGORY_NAMES)
 
         # vertices
         n_v = np.asarray(ak.to_numpy(ak.num(gv[V + "pt"], axis=1)))
@@ -158,7 +157,6 @@ class EvalData:
         for name in ("pt", "eta", "phi", "lxy", "lz", "l3d", "flight_xy", "x", "y", "z", "nDaughters"):
             setattr(self, f"v_{name}", _flat(gv[V + name]).astype(np.float64) if V + name in gv.fields else None)
         self.v_class = _flat(gv[V + "class"]).astype(np.int64)
-        self.v_category = _flat(gv[V + "category"]).astype(np.int64)
         self.v_n_tracks = _flat(gv[V + "nTracks"]).astype(np.int64)
         self.v_n_sel = _flat(gv[V + "n_tracks_selected"]).astype(np.int64)
         self.v_is_target = _flat(gv[V + "is_target"]).astype(bool)

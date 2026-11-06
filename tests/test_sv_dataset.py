@@ -70,7 +70,7 @@ def test_event_tensors(sample):
             expected[np.flatnonzero(hadidx == j)] = True
             if targets["particle_valid"][j]:
                 assert np.array_equal(mask[j], expected), (i, j)
-                assert targets["particle_class"][j] in (0, 1)
+                assert targets["particle_class"][j] in (0, 1, 2)
             else:  # not a target: no tracks, null class
                 assert not mask[j].any() and targets["particle_class"][j] == RESIDUAL_CLASS
         assert (targets["particle_class"][k:] == RESIDUAL_CLASS).all() and not targets["particle_valid"][k:].any()

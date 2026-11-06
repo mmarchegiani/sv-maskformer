@@ -5,10 +5,10 @@ Produces, under ``--outdir``:
 
   efficiency/       vertex-finding efficiency, "perfect" (track recall = purity = 1) and "loose" (both >= 0.5), vs
                     the flight distance lxy, the hadron pT, the number of truth tracks, the number of vertices in the
-                    event, and per truth category (b, c from b, prompt c, other); the recall / purity distributions
+                    event, and per truth class (B, BtoC, C, Other); the recall / purity distributions
   fakes/            predicted vertices not matched to a truth vertex: per event, their track multiplicity, vs the
                     number of truth vertices
-  classification/   the confusion matrix of the vertex classes (b, c, other) and the class probabilities
+  classification/   the confusion matrix of the vertex classes (B, BtoC, C, Other) and the class probabilities
   regression/       residuals of every regressed vertex property, predicted vs true, resolution vs the true value
   tracks/           the track assignment: where the tracks of the heavy-flavour vertices end up, and how many
                     background tracks are claimed by a predicted vertex
@@ -32,7 +32,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sv_eval_common import (  # noqa: E402
-    CMAP_10, CMS_blue, CMS_gray, CMS_orange, CMS_red, EvalData, binomial_error, category_color, eff_profile,
+    CMAP_10, CMS_blue, CMS_gray, CMS_orange, CMS_red, EvalData, binomial_error, class_color, eff_profile,
     robust_sigma, savefig, setup_style,
 )
 
@@ -86,11 +86,11 @@ def efficiency_section(d: EvalData, outdir: str, metrics: dict) -> None:
     if single.any():
         eff, err = binomial_error(d.v_loose[single].sum(), single.sum())
         m["single_track_vertices"] = {"n": int(single.sum()), "loose_efficiency": float(eff), "error": float(err)}
-    m["by_category"] = {}
-    for c, cname in enumerate(d.category_names):
-        s = sel & (d.v_category == c)
+    m["by_class"] = {}
+    for c, cname in enumerate(d.class_names):
+        s = sel & (d.v_class == c)
         if s.any():
-            m["by_category"][cname] = {"n": int(s.sum()), "loose": float(d.v_loose[s].mean()), "perfect": float(d.v_perfect[s].mean())}
+            m["by_class"][cname] = {"n": int(s.sum()), "loose": float(d.v_loose[s].mean()), "perfect": float(d.v_perfect[s].mean())}
 
     # vs lxy, pt, n tracks, n vertices
     for key, x, bins, xlabel, log in (
@@ -113,33 +113,33 @@ def efficiency_section(d: EvalData, outdir: str, metrics: dict) -> None:
         ax.legend(loc="lower right")
         savefig(fig, out, f"efficiency_vs_{key}")
 
-    # vs lxy per category
+    # vs lxy per class
     fig, ax = plt.subplots()
-    for c, cname in enumerate(d.category_names):
-        s = sel & (d.v_category == c)
+    for c, cname in enumerate(d.class_names):
+        s = sel & (d.v_class == c)
         if s.sum() >= 5:
-            _eff_curve(ax, d.v_lxy[s], d.v_loose[s], LXY_BINS, f"{cname} (n={int(s.sum())})", category_color(c))
+            _eff_curve(ax, d.v_lxy[s], d.v_loose[s], LXY_BINS, f"{cname} (n={int(s.sum())})", class_color(c))
     ax.set_xscale("log")
     ax.set_xlabel(r"true $L_{xy}$ [cm]")
     ax.set_ylabel("loose vertex-finding efficiency")
     ax.set_ylim(0, 1.05)
     ax.legend(loc="lower right")
-    savefig(fig, out, "efficiency_vs_lxy_by_category")
+    savefig(fig, out, "efficiency_vs_lxy_by_class")
 
-    # per category bars
+    # per class bars
     fig, ax = plt.subplots()
-    cats = [c for c in range(len(d.category_names)) if (sel & (d.v_category == c)).any()]
+    cats = [c for c in range(len(d.class_names)) if (sel & (d.v_class == c)).any()]
     xs = np.arange(len(cats))
     for off, (name, found, color) in enumerate((("loose", d.v_loose, CMS_blue), ("perfect", d.v_perfect, CMS_red))):
-        vals = [found[sel & (d.v_category == c)].mean() for c in cats]
-        errs = [binomial_error(found[sel & (d.v_category == c)].sum(), (sel & (d.v_category == c)).sum())[1] for c in cats]
+        vals = [found[sel & (d.v_class == c)].mean() for c in cats]
+        errs = [binomial_error(found[sel & (d.v_class == c)].sum(), (sel & (d.v_class == c)).sum())[1] for c in cats]
         ax.bar(xs + (off - 0.5) * 0.35, vals, 0.35, yerr=errs, color=color, label=name, capsize=2)
     ax.set_xticks(xs)
-    ax.set_xticklabels([f"{d.category_names[c]}\n(n={int((sel & (d.v_category == c)).sum())})" for c in cats])
+    ax.set_xticklabels([f"{d.class_names[c]}\n(n={int((sel & (d.v_class == c)).sum())})" for c in cats])
     ax.set_ylabel("vertex-finding efficiency")
     ax.set_ylim(0, 1.05)
     ax.legend()
-    savefig(fig, out, "efficiency_by_category")
+    savefig(fig, out, "efficiency_by_class")
 
     # recall / purity of the found vertices
     found = sel & d.v_pred_valid
@@ -393,7 +393,7 @@ def write_summary(d: EvalData, metrics: dict, outdir: str) -> None:
         f"  loose  (recall, purity >= 0.5):          {e['loose']['efficiency']:.3f} +- {e['loose']['error']:.3f}",
         f"  perfect (recall = purity = 1):           {e['perfect']['efficiency']:.3f} +- {e['perfect']['error']:.3f}",
     ]
-    for cname, v in e.get("by_category", {}).items():
+    for cname, v in e.get("by_class", {}).items():
         lines.append(f"    {cname:10s} n={v['n']:6d}  loose {v['loose']:.3f}  perfect {v['perfect']:.3f}")
     if "single_track_vertices" in e:
         s = e["single_track_vertices"]
