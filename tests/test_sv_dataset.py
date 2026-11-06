@@ -115,6 +115,24 @@ def test_unknown_inputs_and_missing_dict_entries(sample):
         SVDataset(str(parquet), inputs=INPUTS, targets=TARGETS, scale_dict_path=vertex_dict, vertex_scale_dict_path=vertex_dict)
 
 
+def test_candidate_vertex_selection_is_checked(sample, tmp_path, capsys):
+    """A file whose vertices fail the converter's candidate selection is refused; one converted before the selection
+    existed (no GV_nSelectedDaughters) is accepted with a note."""
+    pq = __import__("pyarrow.parquet").parquet
+    parquet, track_dict, vertex_dict, _, _ = sample
+    df = ak.from_arrow(pq.read_table(parquet))
+    gv = df["GV"]
+    gv = ak.with_field(gv, ak.where(ak.local_index(gv["GV_pt"], axis=1) == 0, 5.0, gv["GV_pt"]), "GV_pt")  # the first vertex of every event: pT 5
+    bad = tmp_path / "bad.parquet"
+    pq.write_table(ak.to_arrow_table(ak.with_field(df, gv, "GV"), extensionarray=False), bad)
+    with pytest.raises(ValueError, match="fail the candidate vertex selection"):
+        SVDataset(str(bad), inputs=INPUTS, targets=TARGETS, scale_dict_path=track_dict, vertex_scale_dict_path=vertex_dict)
+    old = tmp_path / "old.parquet"
+    pq.write_table(ak.to_arrow_table(ak.with_field(df, ak.without_field(df["GV"], "GV_nSelectedDaughters"), "GV"), extensionarray=False), old)
+    ds = SVDataset(str(old), inputs=INPUTS, targets=TARGETS, scale_dict_path=track_dict, vertex_scale_dict_path=vertex_dict)
+    assert len(ds) == len(df) and "no GV_nSelectedDaughters" in capsys.readouterr().out
+
+
 def test_datamodule_mirrors_the_dataset_arguments():
     module_params = inspect.signature(SVDataModule.__init__).parameters
     for name, param in inspect.signature(SVDataset.__init__).parameters.items():

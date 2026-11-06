@@ -49,6 +49,8 @@ from sv.dataset.collections import (
     TRACK_COLLECTION,
     TRACK_TRUTH_IDX,
     VERTEX_COLLECTION,
+    VERTEX_SELECTION,
+    select_vertices,
     vertex_category,
     vertex_class,
 )
@@ -170,6 +172,19 @@ class SVDataset(Dataset):
             columns = [c for c in columns if c not in PV_FIELDS]
         return ak.from_arrow(read_parquet_files(self.files, columns=columns))
 
+    def _check_vertex_selection(self, vertices: ak.Array) -> None:
+        """The file's vertices must be the candidate vertices of the converter (collections.VERTEX_SELECTION):
+        `GV_nSelectedDaughters` is written by the converter's selection, and every vertex must pass it."""
+        if "GV_nSelectedDaughters" not in vertices.fields:
+            print(f"NOTE: '{self.vertex_collection}' in {self.filepath} has no GV_nSelectedDaughters: the file was converted before the "
+                  f"candidate vertex selection {VERTEX_SELECTION} existed; reconvert it with `maskformer-sv convert`")
+            return
+        flat = lambda b: ak.to_numpy(ak.flatten(vertices[b]))  # noqa: E731
+        passing = select_vertices(flat("GV_pt"), flat("GV_eta"), flat("GV_nSelectedDaughters"))
+        if not passing.all():
+            raise ValueError(f"{int((~passing).sum())} of {len(passing)} vertices in {self.filepath} fail the candidate vertex selection "
+                             f"{VERTEX_SELECTION}: reconvert the file with `maskformer-sv convert`")
+
     def load_data(self, num_events: int):
         df = self._read()
         if num_events > 0:
@@ -202,6 +217,7 @@ class SVDataset(Dataset):
             raise ValueError(f"'{self.vertex_collection}' in {self.filepath} has no branch(es) {missing}")
         n_vertices = ak.to_numpy(ak.num(vertices["GV_pt"], axis=1)).astype(np.int64)
         vertex_table = {b: ak.to_numpy(ak.flatten(vertices[b])) for b in vertex_branches}
+        self._check_vertex_selection(vertices)
         for axis, key in zip("xyz", PV_KEYS):
             pv = ak.to_numpy(df[f"PV_{axis}"]).astype(np.float64) if self.has_pv else np.zeros(n_loaded)
             vertex_table[key] = np.repeat(pv, n_vertices)

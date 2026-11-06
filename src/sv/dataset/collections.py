@@ -22,8 +22,15 @@ Collections (as measured on ttbar_BTV_1.root):
             comes from a b-hadron, 4 from a prompt c-hadron.
 
 `GV`     -- the gen-level heavy-flavour decay vertices (mean 2.7, max 11 per event; 4% of the events have none):
-            one per b- or c-hadron (and a handful of 3-prong taus) with pT > 10 GeV, |eta| < 2.5 and at least two
-            charged daughters with pT > 0.8 GeV and |eta| < 2.5 (`GV_nDaughters`). Position of the decay vertex
+            one per b- or c-hadron (and a handful of 3-prong taus). The candidate vertices are selected by the
+            converter (VERTEX_SELECTION / DAUGHTER_SELECTION, `select_vertices`): pT > 10 GeV, |eta| < 2.5 and at
+            least two daughters that are charged, stable (a generator-stable charged species, STABLE_CHARGED_PDGIDS:
+            the file carries no status), with pT > 0.8 GeV and |eta| < 2.5, counted from the `GVDaughters`
+            collection (`GV_nSelectedDaughters`; `GV_nDaughters` is the producer's own count). The ntuple producer
+            already applies this selection to the `GV` collection: on ttbar_BTV_1.root all 13,628 vertices pass and
+            `GV_nDaughters` is exactly the number of stored daughters, all of them charged, stable, pT > 0.8 GeV,
+            |eta| < 2.5. Vertices failing it are dropped and the `track_hadidx` of their tracks reset to -1
+            (`track_label` to 0). Position of the decay vertex
             (`GV_x/y/z`, cm) and of the hadron's production vertex (`GV_x_i/y_i/z_i`: the primary vertex for a
             prompt hadron, the b-hadron decay vertex for a c-hadron of a b -> c chain), the hadron kinematics
             (`GV_pt/eta/phi`), its identity (`GV_Hadron_pdgId`; `GV_pdgClass` holds the same value) and the
@@ -79,7 +86,46 @@ VERTEX_BRANCHES = (
     "GV_maxDaughterPairDeltaR",
 )
 #: truth fields the converter adds to the vertex collection (torch-free derivations, see `vertex_truth_fields`)
-VERTEX_DERIVED = ("GV_class", "GV_category", "GV_nTracks", "GV_lxy", "GV_lz", "GV_l3d", "GV_flight_xy", "GV_flight_3d")
+VERTEX_DERIVED = ("GV_class", "GV_category", "GV_nTracks", "GV_nSelectedDaughters",
+                  "GV_lxy", "GV_lz", "GV_l3d", "GV_flight_xy", "GV_flight_3d")
+
+# ---- candidate vertex selection -------------------------------------------------------------------------------
+
+#: selection of the candidate vertices (applied by the converter, checked by the dataset): hadron pT and |eta|, and
+#: the minimum number of daughters passing DAUGHTER_SELECTION
+VERTEX_SELECTION = {"min_pt": 10.0, "max_abs_eta": 2.5, "min_daughters": 2}
+#: a daughter counts when charged, stable (STABLE_CHARGED_PDGIDS), with this pT and |eta|
+DAUGHTER_SELECTION = {"min_pt": 0.8, "max_abs_eta": 2.5}
+#: generator-stable charged particles (Pythia 8 leaves particles with c*tau > 10 mm undecayed: e, mu, pi, K, p,
+#: Sigma+-, Xi-, Omega-); the daughter collection carries no status, so "stable" is this species list
+STABLE_CHARGED_PDGIDS = frozenset({11, 13, 211, 321, 2212, 3112, 3222, 3312, 3334})
+#: branches of the daughter collection the converter needs for the selection (always read)
+DAUGHTER_COLLECTION = "GVDaughters"
+DAUGHTER_BRANCHES = ("GVDaughters_hadronIndex", "GVDaughters_charge", "GVDaughters_pt", "GVDaughters_eta", "GVDaughters_pdgId")
+
+
+def select_daughters(charge, pt, eta, pdg_id) -> np.ndarray:
+    """Mask of the daughters that count for the vertex selection: charged, stable species, pT and |eta| cuts
+    (DAUGHTER_SELECTION)."""
+    charge = np.asarray(charge)
+    pdg_id = np.abs(np.asarray(pdg_id).astype(np.int64))
+    stable = np.isin(pdg_id, np.fromiter(STABLE_CHARGED_PDGIDS, dtype=np.int64))
+    return (charge != 0) & stable & (np.asarray(pt) > DAUGHTER_SELECTION["min_pt"]) & (np.abs(np.asarray(eta)) < DAUGHTER_SELECTION["max_abs_eta"])
+
+
+def vertex_selection_flags(pt, eta, n_selected_daughters) -> dict[str, np.ndarray]:
+    """The three requirements of VERTEX_SELECTION per vertex (name -> mask), in cutflow order."""
+    return {
+        f"pt > {VERTEX_SELECTION['min_pt']:g}": np.asarray(pt) > VERTEX_SELECTION["min_pt"],
+        f"|eta| < {VERTEX_SELECTION['max_abs_eta']:g}": np.abs(np.asarray(eta)) < VERTEX_SELECTION["max_abs_eta"],
+        f"selected daughters >= {VERTEX_SELECTION['min_daughters']}": np.asarray(n_selected_daughters) >= VERTEX_SELECTION["min_daughters"],
+    }
+
+
+def select_vertices(pt, eta, n_selected_daughters) -> np.ndarray:
+    """Mask of the candidate vertices (VERTEX_SELECTION): hadron pT, |eta| and the number of selected daughters."""
+    flags = vertex_selection_flags(pt, eta, n_selected_daughters)
+    return np.logical_and.reduce(list(flags.values()))
 
 #: optional collections the converter can keep (--keep): read only when asked for
 OPTIONAL_COLLECTIONS = {

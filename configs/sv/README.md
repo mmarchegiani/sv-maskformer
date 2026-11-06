@@ -17,7 +17,7 @@ simulation. The code lives in `src/sv/` (reusing `src/maskformer/`, never `src/h
 |---|---|---|
 | input constituents | the 50 highest-pT tracks of the jet | all reconstructed tracks of the event (`track` collection: mean 390, max 847) |
 | track features | d0, z0, pT fraction, eta/phi relative to the jet, jet pT/eta | global kinematics, impact parameters and significances, dz, hit content, quality flags (`sv.dataset.features.TRACK_FEATURES`) |
-| objects (queries) | b- and c-hadron decay vertices, 5 queries | the `GV` collection: b-/c-hadron (and 3-prong tau) decay vertices with pT > 10 GeV, |eta| < 2.5, >= 2 charged daughters; mean 2.7, max 11 per event; 16 queries |
+| objects (queries) | b- and c-hadron decay vertices, 5 queries | the `GV` collection after the candidate selection below: b-/c-hadron (and 3-prong tau) decay vertices; mean 2.7, max 11 per event; 16 queries |
 | truth track-vertex link | truth association | `track_hadidx`, the index of the vertex each track comes from (-1 for 98% of the tracks) |
 | vertex classes | b, c, null | b, c, other (taus, rare baryons), null |
 | regression | hadron pT, Lxy (from the beam line), dR to the jet axis | hadron pT, eta, sin/cos phi, lxy and lz (flight distance from the generated primary vertex); also available: l3d, x, y, z |
@@ -25,8 +25,24 @@ simulation. The code lives in `src/sv/` (reusing `src/maskformer/`, never `src/h
 | evaluation | perfect / loose vertex-finding efficiency vs Lxy, fake rate, fit residuals | the same, plus the track assignment and the class confusion (`maskformer-sv plot`) |
 
 The data and the truth definitions are documented in `src/sv/dataset/collections.py`, the feature derivations in
-`src/sv/dataset/features.py`. On `ttbar_BTV_1.root` 91% of the vertices have at least two reconstructed tracks and
-99% at least one; a vertex with fewer than `min_tracks_for_valid` tracks is not a target of the model.
+`src/sv/dataset/features.py`.
+
+**Candidate vertices.** `maskformer-sv convert` keeps a `GV` vertex when (`VERTEX_SELECTION`, `DAUGHTER_SELECTION`
+in `collections.py`):
+
+- hadron pT > 10 GeV and |eta| < 2.5;
+- at least 2 daughters (from the `GVDaughters` collection) that are charged, stable (a generator-stable charged
+  species: e, mu, pi, K, p, Sigma, Xi, Omega; the daughters carry no status), with pT > 0.8 GeV and |eta| < 2.5.
+  Their number is written as `GV_nSelectedDaughters`.
+
+The vertices failing it are dropped, the remaining ones renumbered and the `track_hadidx` of the tracks of a
+dropped vertex reset to -1 (`track_label` 0); the converter prints the cutflow. The ntuple producer already applies
+this selection: on `ttbar_BTV_1.root` all 13,628 vertices pass. The dataset refuses a file whose vertices fail it
+and reports a file converted before the selection existed (no `GV_nSelectedDaughters`).
+
+**Targets.** Among the candidate vertices, 91% have at least two reconstructed tracks on `ttbar_BTV_1.root` and
+99% at least one; a vertex with fewer than `min_tracks_for_valid` tracks is not a target of the model (null class,
+its tracks are background).
 
 ## Workflow
 
