@@ -8,17 +8,22 @@
 |---|---|---|
 | `maskformer/` | the **general** MaskFormer code: the Lightning wrapper of hepattn's model (`models/wrapper.py`), the task overrides and the sectored decoder (`models/`), the checkpoint, early-stopping and prediction-writer base callbacks (`callbacks/`), parquet/path/finiteness utilities (`utils/`), and the generic entry points: the Lightning-CLI wrappers for training and evaluation, the click building blocks and the config migration (`scripts/`) | hepattn, torch, lightning |
 | `hgcal/` | everything **HGCAL-specific**: the dataset and its collection knowledge (`dataset/`), the prediction writers that write the HGCAL collections back into the input file (`callbacks/`), the `maskformer` command line, the training/evaluation bindings, the plot chain, the normalization fits and the toy-calorimeter tools (`scripts/`) | `maskformer` |
+| `sv/` | the **secondary-vertex** experiment (tracks -> heavy-flavour decay vertices, after arXiv:2312.12272, on the BTV ntuples): collection knowledge and feature derivations (`dataset/collections.py`, `dataset/features.py`, torch-free), `SVDataset`/`SVDataModule` (`dataset/dataset_sv.py`), `SVPredictionWriter` (`callbacks/`), the `maskformer-sv` command line with the ROOT -> parquet converter, the normalization fit, the training/evaluation bindings and the plot chain (`scripts/`). See [configs/sv/README.md](../configs/sv/README.md) | `maskformer` |
 
-The rule, enforced by `tests/test_import_rule.py`: `hgcal` imports `maskformer`, `maskformer` never imports
-`hgcal`. A new experiment reuses `maskformer` as is and provides its own dataset, writers and bindings next to
-`hgcal`. Class names follow the split: the general classes carry no experiment prefix (`MaskformerWrapper`,
-`MaskformerCLI`, `RowwiseObjectHitMaskTask`, `ConfigurableIncidenceBasedRegressionTask`, `PredictionWriterBase`),
-the HGCAL ones keep theirs (`HGCDataset`, `HGCDataModule`, `HGCPredictionWriter`, `SectoredPredictionWriter`).
+The rule, enforced by `tests/test_import_rule.py`: the experiment packages (`hgcal`, `sv`) import `maskformer`,
+`maskformer` never imports an experiment, and the experiments never import each other. A new experiment reuses
+`maskformer` as is and provides its own dataset, writers and bindings next to `hgcal` and `sv`. Class names follow
+the split: the general classes carry no experiment prefix (`MaskformerWrapper`, `MaskformerCLI`,
+`RowwiseObjectHitMaskTask`, `ConfigurableIncidenceBasedRegressionTask`, `ConfigurableObjectRegressionTask`,
+`PredictionWriterBase`), the experiment ones keep theirs (`HGCDataset`, `HGCDataModule`, `HGCPredictionWriter`,
+`SectoredPredictionWriter`; `SVDataset`, `SVDataModule`, `SVPredictionWriter`).
 
-## The command
+## The commands
 
-Every task runs through `maskformer`, a [click](https://click.palletsprojects.com) command (`src/hgcal/scripts/cli.py`,
-built from the pieces of `src/maskformer/scripts/cli.py`):
+Every HGCAL task runs through `maskformer`, a [click](https://click.palletsprojects.com) command (`src/hgcal/scripts/cli.py`,
+built from the pieces of `src/maskformer/scripts/cli.py`); the SV experiment has its own, `maskformer-sv`
+(`src/sv/scripts/cli.py`, `python -m sv`): `train`, `evaluate`, `convert` (ROOT ntuples -> parquet), `norm-par` and
+`plot`, documented in [configs/sv/README.md](../configs/sv/README.md). The `maskformer` commands:
 
 | command | wraps | purpose |
 |---|---|---|
@@ -241,6 +246,8 @@ checkout root.
 | `jobs/eval_lxplus.sh` | lxplus GPU | `bash jobs/eval_lxplus.sh <model_dir> [file_list.txt] [extra args]`: Kerberos-bound evaluation of EOS files, plots published to the EOS www area with a web index |
 | `jobs/norm_par_job.sh` | falcon | `TOPO=... PART=... DATA_DIR=... sbatch jobs/norm_par_job.sh`: fits two scale dicts into `params/` |
 | `jobs/copy_files.sh`, `jobs/photon_eval_files.txt` | | copies the photon evaluation sets from XRootD to EOS; the file list the lxplus evaluation defaults to |
+| `jobs/train_sv_job.sh` | falcon | `sbatch jobs/train_sv_job.sh [data_dir] [args]`: trains `configs/sv/gv_tracks.yaml` on the train/ val/ test/ folders of a converted SV dataset |
+| `jobs/train_sv_lxplus.sh` | lxplus GPU | `bash jobs/train_sv_lxplus.sh [config] [args]`: the same on lxplus-gpu with the EOS files of the config (Kerberos-bound) |
 
 ### Energy-resolution tooling (single-particle scans)
 
@@ -296,5 +303,7 @@ on both sites.
   Never import them package-qualified (`hgcal.scripts.plot.hgcal_eval_common`): there would be two module objects and
   `isinstance` checks between them would fail. `run_plot_chain` (imported by the CLI) is the one exception by design.
 - Tests: `tests/test_cli.py`, `test_paths.py`, `test_configs.py`, `test_import_rule.py`, `test_migrate_config.py`,
-  `test_scale_transform.py` and `test_plot_chain.py` run without torch (`PYTHONPATH=src:$PYTHONPATH python -m pytest tests/test_cli.py ...`
-  in an LCG view); the rest needs the container (`PYTHONPATH=src python -m pytest tests`).
+  `test_scale_transform.py`, `test_plot_chain.py` and the SV ones `test_sv_features.py`, `test_sv_cli.py`,
+  `test_sv_convert.py` (a synthetic ntuple written with uproot), `test_sv_plot_chain.py` run without torch
+  (`PYTHONPATH=src:$PYTHONPATH python -m pytest tests/test_cli.py ...` in an LCG view); the rest, including
+  `test_sv_dataset.py`, needs the container (`PYTHONPATH=src python -m pytest tests`).

@@ -4,6 +4,11 @@ Machine-learning reconstruction of HGCAL showers: MaskFormer models (built on [h
 that cluster the objects of an event (rechits, layer clusters or TICL tracksters) into particles and regress
 their properties, trained and evaluated on CMS simulation. Everything runs through one command, `maskformer`.
 
+The same MaskFormer machinery (`src/maskformer/`) also reconstructs **secondary vertices** from the tracks of an
+event (`src/sv/`, command `maskformer-sv`, configs in `configs/sv/`), reproducing
+[Secondary vertex reconstruction with MaskFormers](https://arxiv.org/abs/2312.12272) on CMS ttbar simulation:
+see [configs/sv/README.md](configs/sv/README.md).
+
 ## Setup
 
 The code runs inside a container image with every dependency installed:
