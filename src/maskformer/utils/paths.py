@@ -1,4 +1,4 @@
-"""Repo-relative path helpers shared by the dataset, the `maskformers` CLI and the torch-free plot chain.
+"""Repo-relative path helpers shared by the datasets, the command line and the torch-free plot chains.
 
 The scale dicts (the normalization parameters written by `maskformers norm-par`) live in `params/` and are
 referenced from the training configs as `params/<name>.yaml`, relative to the repository root. Older run
@@ -19,12 +19,13 @@ LEGACY_SCALE_DICT_DIR = "configs"
 
 
 def repo_root() -> Path | None:
-    """The checkout root: `$HGCAL_REPO_ROOT`, else the first of the source tree this file sits in, the current
-    directory and `/app` (where the container image copies the repository) that holds a `pyproject.toml`."""
+    """The checkout root: `$HGCAL_REPO_ROOT`, else the first directory above this file, then the current
+    directory, then `/app` (where the container image copies the repository) that holds a `pyproject.toml`."""
     env = os.environ.get("HGCAL_REPO_ROOT")
     if env:
         return Path(env)
-    for candidate in (Path(__file__).resolve().parents[2], Path.cwd(), Path("/app")):
+    here = Path(__file__).resolve()
+    for candidate in (*here.parents[:6], Path.cwd(), Path("/app")):
         if (candidate / "pyproject.toml").is_file():
             return candidate
     return None

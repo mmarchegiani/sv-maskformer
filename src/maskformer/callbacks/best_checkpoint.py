@@ -17,7 +17,7 @@ class BestCheckpoint(ModelCheckpoint):
     the new one (`save_top_k=1`, so there is always exactly one `best-*.ckpt`). It does not
     upload the file to the logger (the per-epoch `Checkpoint` already does that).
 
-    `get_best_epoch` in hepattn's CLI (used by `evaluate_maskformer.py` when `--ckpt_path` is
+    `get_best_epoch` in hepattn's CLI (used by the evaluation entry point when `--ckpt_path` is
     omitted) reads the loss off the file name, so the `best-*` file is picked up as the best
     checkpoint like any other.
 

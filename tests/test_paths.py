@@ -7,7 +7,7 @@ import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
-from utils.paths import repo_root, resolve_scale_dict_path  # noqa: E402
+from maskformer.utils.paths import repo_root, resolve_scale_dict_path  # noqa: E402
 
 
 @pytest.fixture

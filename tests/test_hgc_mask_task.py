@@ -1,9 +1,9 @@
-"""models.tasks.HGCObjectHitMaskTask: hepattn's mask losses evaluated row by row (decoder batch > 1), hepattn untouched.
+"""models.tasks.RowwiseObjectHitMaskTask: hepattn's mask losses evaluated row by row (decoder batch > 1), hepattn untouched.
 
 The reproducer: a batch of two rows with different numbers of valid hits. The expected mask losses are the mean over the
 valid objects of each object's own loss on its own row's hits, computed here without hepattn (`per_object_*`).
 hepattn's ObjectHitMaskTask gives a different number for that batch (pad masks broadcast across rows), the same number
-for each row alone, and HGCObjectHitMaskTask gives the expected one.
+for each row alone, and RowwiseObjectHitMaskTask gives the expected one.
 """
 
 import pytest
@@ -12,7 +12,7 @@ import torch.nn.functional as F
 
 hepattn_task = pytest.importorskip("hepattn.models.task")
 from hepattn.models.loss import loss_fns as hepattn_loss_fns  # noqa: E402
-from models.tasks import HGCObjectHitMaskTask  # noqa: E402
+from maskformer.models.tasks import RowwiseObjectHitMaskTask  # noqa: E402
 
 LOSSES = {"mask_bce": 5.0, "mask_dice": 1.0}
 NULL_WEIGHT = 1.0
@@ -82,9 +82,9 @@ def test_reproducer_batch2_unequal_pad_lengths():
     batch = make_batch()
     want = expected(*batch)
     hepattn_loss = make(hepattn_task.ObjectHitMaskTask).loss(*batch)
-    ours = make(HGCObjectHitMaskTask).loss(*batch)
+    ours = make(RowwiseObjectHitMaskTask).loss(*batch)
     print(f"\nbatch of 2 rows, valid hits (6, 10) of 12, valid objects (2, 3): expected {numbers(want)}, "
-          f"hepattn ObjectHitMaskTask {numbers(hepattn_loss)}, HGCObjectHitMaskTask {numbers(ours)}")
+          f"hepattn ObjectHitMaskTask {numbers(hepattn_loss)}, RowwiseObjectHitMaskTask {numbers(ours)}")
     for name in LOSSES:
         torch.testing.assert_close(ours[name], want[name], rtol=1e-5, atol=1e-6)
         # documents hepattn 0.2.0 (the container's): if this fails, hepattn reduces per row itself
@@ -96,7 +96,7 @@ def test_single_row_equals_hepattn(r):
     batch = row(make_batch(), r)
     want = expected(*batch)
     hepattn_loss = make(hepattn_task.ObjectHitMaskTask).loss(*batch)
-    ours = make(HGCObjectHitMaskTask).loss(*batch)
+    ours = make(RowwiseObjectHitMaskTask).loss(*batch)
     for name in LOSSES:
         torch.testing.assert_close(ours[name], hepattn_loss[name], rtol=1e-6, atol=0)
         torch.testing.assert_close(hepattn_loss[name], want[name], rtol=1e-5, atol=1e-6)
@@ -106,13 +106,13 @@ def test_equal_pad_lengths_agree_with_hepattn():
     # with identical pad masks in every row the broadcast is harmless: hepattn and the row-wise loss agree
     batch = make_batch(n_hits=(9, 9, 9), n_objects=(1, 3, 2))
     hepattn_loss = make(hepattn_task.ObjectHitMaskTask).loss(*batch)
-    ours = make(HGCObjectHitMaskTask).loss(*batch)
+    ours = make(RowwiseObjectHitMaskTask).loss(*batch)
     for name in LOSSES:
         torch.testing.assert_close(ours[name], hepattn_loss[name], rtol=1e-5, atol=1e-6)
 
 
 def test_rows_without_objects():
-    task = make(HGCObjectHitMaskTask)
+    task = make(RowwiseObjectHitMaskTask)
     batch = make_batch(n_hits=(6, 10, 4), n_objects=(2, 0, 3))
     outputs, targets = batch
     keep = [0, 2]
@@ -130,7 +130,7 @@ def test_rows_without_objects():
 
 
 def test_state_dict_unchanged():
-    assert set(make(hepattn_task.ObjectHitMaskTask).state_dict()) == set(make(HGCObjectHitMaskTask).state_dict())
+    assert set(make(hepattn_task.ObjectHitMaskTask).state_dict()) == set(make(RowwiseObjectHitMaskTask).state_dict())
 
 
 @pytest.mark.parametrize("seed", range(6))
@@ -143,14 +143,14 @@ def test_vectorised_equals_row_by_row(seed):
     if sum(n_objects) == 0:
         n_objects = (1,) + n_objects[1:]
     outputs, targets = make_batch(n_hits=n_hits, n_objects=n_objects, num_queries=4, max_nodes=12, seed=seed)
-    task = make(HGCObjectHitMaskTask)
+    task = make(RowwiseObjectHitMaskTask)
     worst = 0.0
     for name, weight in LOSSES.items():
         a = outputs["pflow_node_logit"].clone().requires_grad_(True)
         b = outputs["pflow_node_logit"].clone().requires_grad_(True)
         fast = task.loss({"pflow_node_logit": a}, targets)[name]
         target = targets["particle_node_valid"].type_as(b)
-        loop = weight * HGCObjectHitMaskTask._row_by_row(
+        loop = weight * RowwiseObjectHitMaskTask._row_by_row(
             name, b, target, targets["particle_valid"], targets["node_valid"], target + NULL_WEIGHT * (1 - target)
         )
         torch.testing.assert_close(fast, loop, rtol=1e-6, atol=1e-7)
@@ -164,7 +164,7 @@ def test_vectorised_equals_row_by_row(seed):
 def test_other_losses_fall_back_to_rows():
     batch = make_batch()
     torch.manual_seed(0)
-    task = HGCObjectHitMaskTask(
+    task = RowwiseObjectHitMaskTask(
         name="mask", input_constituent="node", input_object="query", output_object="pflow", target_object="particle",
         losses={"mask_focal": 1.0}, costs={"mask_dice": 1.0}, dim=8, null_weight=NULL_WEIGHT,
     )

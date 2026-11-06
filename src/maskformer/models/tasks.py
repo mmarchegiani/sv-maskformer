@@ -1,6 +1,6 @@
-"""HGCAL-specific overrides of hepattn tasks.
+"""Overrides of hepattn tasks.
 
-hepattn is used unmodified; behaviour that HGCAL needs and hepattn does not offer is added here by inheritance.
+hepattn is used unmodified; behaviour the models here need and hepattn does not offer is added by inheritance.
 """
 
 import torch
@@ -10,7 +10,7 @@ from hepattn.utils.masks import topk_attn
 from torch import Tensor
 
 
-class HGCObjectHitMaskTask(ObjectHitMaskTask):
+class RowwiseObjectHitMaskTask(ObjectHitMaskTask):
     """ObjectHitMaskTask whose mask losses are correct for a decoder batch of more than one row.
 
     hepattn's `mask_bce_loss` and `mask_dice_loss` first select the valid objects of all rows (`pred[object_valid_mask]`,
@@ -92,13 +92,13 @@ def _mask_dice_per_object(logits: Tensor, target: Tensor, hit_pad: Tensor, sampl
 _ROW_FORMULAS = {"mask_bce": _mask_bce_per_object, "mask_dice": _mask_dice_per_object}
 
 
-class HGCIncidenceBasedRegressionTask(IncidenceBasedRegressionTask):
+class ConfigurableIncidenceBasedRegressionTask(IncidenceBasedRegressionTask):
     """IncidenceBasedRegressionTask with a configurable set of "charged" classes.
 
     hepattn's `get_proxy_feats` takes the proxy features of a query from the track branch whenever its predicted
-    class index is < 3 (the PFlow convention: charged hadron / electron / muon). HGCAL inputs carry no tracks
-    (`<input_constituent>_is_track == 0` everywhere), so every query predicted as a real class received zero proxy
-    features and the regression loss pushed the classification head towards the null class (issue #5).
+    class index is < 3 (the PFlow convention: charged hadron / electron / muon). Inputs without tracks (HGCAL,
+    for instance: `<input_constituent>_is_track == 0` everywhere) then give every query predicted as a real class
+    zero proxy features, and the regression loss pushes the classification head towards the null class (issue #5).
 
     Args:
         charged_classes: class indices whose proxy features come from the track branch. `None` keeps hepattn's

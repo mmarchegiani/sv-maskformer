@@ -13,7 +13,7 @@ class EarlyStopping(_EarlyStopping):
 
     Configure it in the trainer callbacks, e.g.
 
-        - class_path: callbacks.early_stopping.EarlyStopping
+        - class_path: maskformer.callbacks.early_stopping.EarlyStopping
           init_args:
             patience: 25
 

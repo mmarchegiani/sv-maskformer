@@ -9,13 +9,13 @@ assigned to the hits of that sector only: query -> hit cross-attention, the hit 
 query self-attention all stay inside the row. The final tasks then run on the same rows (MaskFormer.forward).
 
 Targets come per event as one list of S x T object slots (sector k in slots [kT, (k+1)T), T = decoder queries per sector;
-dataset.sectored_dataset). `SectoredMaskFormer.loss` reshapes them to the rows (B * S, T) and calls `MaskFormer.loss`:
+the experiment's sectored dataset, e.g. hgcal.dataset.sectored_dataset). `SectoredMaskFormer.loss` reshapes them to the rows (B * S, T) and calls `MaskFormer.loss`:
 one matcher call per step over the stacked layer x row cost matrices, each sector's queries matched to that sector's
 targets only, and each loss term hepattn's mean over the rows (not a sum over sectors). With more than one row the mask
-task must be models.tasks.HGCObjectHitMaskTask (hepattn's mask losses mix the pad masks of the rows).
+task must be maskformer.models.tasks.RowwiseObjectHitMaskTask (hepattn's mask losses mix the pad masks of the rows).
 
 `merge_sector_rows` / `scatter_to_event_hits` turn the row outputs back into one event-level list of S x Q predictions on
-the event's hits (callbacks.sectored_prediction_writer).
+the event's hits (the experiment's sectored prediction writer, e.g. hgcal.callbacks.sectored_prediction_writer).
 """
 
 import torch

@@ -1,4 +1,4 @@
-"""Tests for the NaN/inf guards (src/dataset/finite_checks.py) and their use by the model
+"""Tests for the NaN/inf guards (src/maskformer/utils/finite_checks.py) and their use by the model
 wrapper, on synthetic tensors. Needs numpy, scipy, torch; the wrapper test also needs hepattn
 and lightning (skipped otherwise):
 
@@ -17,7 +17,7 @@ from scipy.sparse import csr_matrix
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from dataset.finite_checks import (  # noqa: E402
+from maskformer.utils.finite_checks import (  # noqa: E402
     INCIDENCE_TOL,
     assert_batch_finite,
     assert_finite,
@@ -174,9 +174,9 @@ def test_losses_finite():
 
 def test_wrapper_guards_raise_and_dump(tmp_path):
     pytest.importorskip("hepattn")
-    from models.maskformer_model import HGCMaskformer
+    from maskformer.models.wrapper import MaskformerWrapper
 
-    wrapper = HGCMaskformer("t", torch.nn.Linear(2, 2), {"initial": 1e-4}, nonfinite_dump_dir=str(tmp_path))
+    wrapper = MaskformerWrapper("t", torch.nn.Linear(2, 2), {"initial": 1e-4}, nonfinite_dump_dir=str(tmp_path))
     inputs, targets = make_batch()
     wrapper.on_validation_batch_start((inputs, targets), 3)
     losses = {"final": {"regression": {"l1": torch.tensor(NAN)}}}

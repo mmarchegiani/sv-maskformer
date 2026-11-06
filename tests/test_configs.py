@@ -1,6 +1,7 @@
 """Static checks of configs/ and params/ (pyyaml only): layout, scale-dict references, task wiring."""
 
 import pathlib
+import sys
 
 import pytest
 import yaml
@@ -25,6 +26,18 @@ def _strings(obj):
             yield from _strings(value)
     elif isinstance(obj, str):
         yield obj
+
+
+def _class_paths(obj):
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key == "class_path" and isinstance(value, str):
+                yield value
+            else:
+                yield from _class_paths(value)
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from _class_paths(value)
 
 
 def _task_scale_dicts(obj):
@@ -75,3 +88,35 @@ def test_params_readme_documents_the_missing_dicts():
     readme = (PARAMS / "README.md").read_text()
     for name in KNOWN_MISSING:
         assert name in readme, f"params/README.md must say that {name} is still to be fitted"
+
+
+PROJECT_PACKAGES = ("maskformer.", "hgcal.")
+
+
+@pytest.mark.parametrize("path", CONFIG_FILES, ids=lambda p: str(p.relative_to(CONFIGS)))
+def test_class_paths_are_current(path):
+    """Every project class path uses the maskformer/hgcal layout, not a pre-split one."""
+    sys.path.insert(0, str(REPO / "src"))
+    from hgcal.scripts.legacy import LEGACY_CLASS_PATH_PREFIXES, LEGACY_CLASS_PATHS
+
+    cfg = yaml.safe_load(path.read_text())
+    project = [c for c in _class_paths(cfg) if not c.startswith(("hepattn.", "torch.", "lightning."))]
+    assert project, "no project class path in the config"
+    for class_path in project:
+        assert class_path.startswith(PROJECT_PACKAGES), class_path
+        assert class_path not in LEGACY_CLASS_PATHS and not class_path.startswith(LEGACY_CLASS_PATH_PREFIXES), class_path
+
+
+@pytest.mark.parametrize("path", CONFIG_FILES, ids=lambda p: str(p.relative_to(CONFIGS)))
+def test_project_class_paths_import(path):
+    """The project classes named by the config exist (container: needs torch and hepattn)."""
+    pytest.importorskip("torch")
+    pytest.importorskip("hepattn")
+    import importlib
+
+    sys.path.insert(0, str(REPO / "src"))
+    cfg = yaml.safe_load(path.read_text())
+    for class_path in _class_paths(cfg):
+        if class_path.startswith(PROJECT_PACKAGES):
+            module, _, name = class_path.rpartition(".")
+            assert hasattr(importlib.import_module(module), name), class_path

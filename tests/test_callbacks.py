@@ -1,4 +1,4 @@
-"""Tests for the training callbacks in src/callbacks (BestCheckpoint, EarlyStopping) on a toy
+"""Tests for the training callbacks in src/maskformer/callbacks (BestCheckpoint, EarlyStopping) on a toy
 LightningModule whose validation loss follows a fixed per-epoch schedule. Needs torch and
 lightning (skipped otherwise):
 
@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO / "src"))
 torch = pytest.importorskip("torch")
 lightning = pytest.importorskip("lightning")
 
-from callbacks import BestCheckpoint, EarlyStopping  # noqa: E402
+from maskformer.callbacks import BestCheckpoint, EarlyStopping  # noqa: E402
 
 
 class ScheduledLossModel(lightning.LightningModule):

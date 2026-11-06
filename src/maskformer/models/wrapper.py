@@ -7,11 +7,18 @@ from torch import nn
 from hepattn.experiments.clic.metrics import MaskInference
 from hepattn.models.wrapper import ModelWrapper
 
-from dataset.dataset_maskformers import NUM_CLASSES, RESIDUAL_CLASS
-from dataset.finite_checks import assert_batch_finite, assert_losses_finite
+from maskformer.utils.finite_checks import assert_batch_finite, assert_losses_finite
 
 
-class HGCMaskformer(ModelWrapper):
+class MaskformerWrapper(ModelWrapper):
+    """hepattn's `ModelWrapper` plus non-finite guards on every batch and loss, and validation/test metrics
+    (object-class accuracy, efficiency, purity, mask metrics) keyed by the configs' naming conventions
+    (`particle_*` targets, `pflow_*` outputs, the `classification` and `mask` tasks).
+
+    `num_classes` is the number of real object classes; hepattn's `ObjectClassificationTask` puts the null
+    class at index `num_classes`, which is therefore the residual (invalid-object) class here.
+    """
+
     def __init__(
         self,
         name: str,
@@ -20,19 +27,23 @@ class HGCMaskformer(ModelWrapper):
         optimizer: str = "AdamW",
         mtl: bool = False,
         nonfinite_dump_dir: str | None = None,
+        num_classes: int = 3,
     ):
         """Args:
         nonfinite_dump_dir: where the batch that produced a non-finite loss is saved before
             the AssertionError is raised (see `_guard_losses`); defaults to the trainer's log
             directory.
+        num_classes: number of real object classes (the null/residual class is index `num_classes`).
         """
         super().__init__(name, model, lrs_config, optimizer, mtl)
+        self.num_classes = int(num_classes)
+        self.residual_class = self.num_classes
         self.MI = MaskInference
         self.nonfinite_dump_dir = nonfinite_dump_dir
         self._current_batch: tuple[str, int, tuple] | None = None
 
-        self.obj_accuracy_micro = tm.classification.MulticlassAccuracy(num_classes=NUM_CLASSES + 1, average="micro")
-        self.obj_accuracy_macro = tm.classification.MulticlassAccuracy(num_classes=NUM_CLASSES + 1, average="macro")
+        self.obj_accuracy_micro = tm.classification.MulticlassAccuracy(num_classes=self.num_classes + 1, average="micro")
+        self.obj_accuracy_macro = tm.classification.MulticlassAccuracy(num_classes=self.num_classes + 1, average="macro")
 
         self.eff = tm.classification.BinaryRecall()
         self.fake = tm.classification.BinaryRecall()
@@ -111,14 +122,14 @@ class HGCMaskformer(ModelWrapper):
         # get info
         pred_valid = None
         particle_class_labels = labels["particle_class"].squeeze()
-        truth_valid = particle_class_labels < RESIDUAL_CLASS
+        truth_valid = particle_class_labels < self.residual_class
         for key, value in preds.items():
             for task_name, task_value in value.items():
                 if task_name == "classification":
                     particle_class_preds = task_value["pflow_class"].squeeze()  # remove batch index
 
                     # object class prediction metrics
-                    valid_class_mask = (particle_class_labels >= 0) & (particle_class_labels <= RESIDUAL_CLASS)
+                    valid_class_mask = (particle_class_labels >= 0) & (particle_class_labels <= self.residual_class)
                     valid_class_mask = valid_class_mask.view(-1)
                     self.obj_accuracy_micro(particle_class_preds.view(-1)[valid_class_mask], particle_class_labels.view(-1)[valid_class_mask])
                     self.log(f"{stage}/{key}_obj_class_accuracy_micro", self.obj_accuracy_micro, **kwargs)
@@ -126,7 +137,7 @@ class HGCMaskformer(ModelWrapper):
                     self.log(f"{stage}/{key}_obj_class_accuracy_macro", self.obj_accuracy_macro, **kwargs)
 
                     # tracking efficiency and fake rate
-                    pred_valid = particle_class_preds < RESIDUAL_CLASS
+                    pred_valid = particle_class_preds < self.residual_class
                     self.eff(pred_valid, truth_valid)
                     self.pur(pred_valid, truth_valid)
 

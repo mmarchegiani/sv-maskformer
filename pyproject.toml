@@ -42,7 +42,7 @@ dependencies = [
 ]
 
 [project.scripts]
-maskformers = "maskformers.cli:cli"
+maskformer = "hgcal.scripts.cli:cli"
 
 [project.optional-dependencies]
 dev = [
@@ -60,5 +60,5 @@ Repository = "https://gitlab.cern.ch/cms-cmu/hgcal-ml4reco/hgcal-offline-reco"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["*"]
+include = ["maskformer*", "hgcal*"]
 namespaces = false
