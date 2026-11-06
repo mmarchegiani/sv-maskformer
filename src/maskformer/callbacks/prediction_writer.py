@@ -31,6 +31,9 @@ class PredictionWriterBase(Callback):
     output_description = "predictions"
     #: whether the experiment's plot chain can read the written file
     plot_chain_readable = True
+    #: parquet compression of the written file (awkward's default is zstd, which the pyarrow of some LCG views cannot
+    #: read; an experiment whose plot chain must run there sets "snappy")
+    parquet_compression = "zstd"
 
     def __init__(self, output_path: str | None = None) -> None:
         super().__init__()
@@ -126,7 +129,7 @@ class PredictionWriterBase(Callback):
         event_numbers = np.array(self._event_numbers, dtype=np.int64)
         out = self.build_output(event_numbers)
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        ak.to_parquet(out, self.output_path)
+        ak.to_parquet(out, self.output_path, compression=self.parquet_compression)
         # remembered for whoever runs after the test loop (the plot chain of the evaluation),
         # independent of trainer.ckpt_path surviving teardown
         self.written_output_path = self.output_path
