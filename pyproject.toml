@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "hepattn @ git+https://github.com/mmarchegiani/hepattn.git@python_3_12_3",
+    "hepattn @ git+https://github.com/mmarchegiani/hepattn.git@memory-fit-8gb",
     "numpy>=1.24.0",
     "pandas>=1.17.0",
     "torch>=2.0.0",
