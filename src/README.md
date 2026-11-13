@@ -248,6 +248,7 @@ checkout root.
 | `jobs/copy_files.sh`, `jobs/photon_eval_files.txt` | | copies the photon evaluation sets from XRootD to EOS; the file list the lxplus evaluation defaults to |
 | `jobs/train_sv_job.sh` | falcon | `sbatch jobs/train_sv_job.sh [data_dir] [args]`: trains `configs/sv/gv_tracks.yaml` on the train/ val/ test/ folders of a converted SV dataset |
 | `jobs/train_sv_lxplus.sh` | lxplus GPU | `bash jobs/train_sv_lxplus.sh [config] [args]`: the same on lxplus-gpu with the EOS files of the config (Kerberos-bound) |
+| `jobs/train_sv_condor.sub` + `jobs/train_sv_condor.sh` | CERN GPU batch (HTCondor) | `condor_submit jobs/train_sv_condor.sub [smoke=1 flavour=longlunch] [name=... extra="..."]`: unattended training on an A100/H100 (Kerberos delegated by condor), evaluation of the best checkpoint on the test split, plots published to `/eos/user/m/mmarcheg/www/plots/ml4reco/sv-maskformers/<run>/evaluation/test/`; run outputs in `/eos/user/m/mmarcheg/BTV/sv_reconstruction/runs/job_<cluster>/`, STATUS file there; `run_dir=<run>` evaluates a finished run only |
 
 ### Energy-resolution tooling (single-particle scans)
 

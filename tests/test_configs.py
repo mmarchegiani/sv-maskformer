@@ -128,6 +128,11 @@ def test_sv_configs_are_consistent(path):
     # the decoder's cross-attention: mask attention or hepattn's local strided window, with what hepattn asserts
     decoder = model["decoder"]
     assert decoder["mask_attention"] != bool(decoder.get("local_strided_attn", False))
+    # dynamic queries (hepattn): batch size 1, a `query_init` encoder task on the track seeds, the track as source
+    if decoder.get("dynamic_queries"):
+        assert data["batch_size"] == 1 and model["dynamic_query_source"] == "track"
+        (seed,) = [t["init_args"] for t in model["encoder_tasks"]["init_args"]["modules"] if t["init_args"]["name"] == "query_init"]
+        assert seed["input_object"] == "track" and seed["target_field"] == "seed" and 0 < seed["threshold"] < 1
     if decoder.get("local_strided_attn"):
         assert data["batch_size"] == 1 and data["pad_to_max_tracks"] is False and data["sort_tracks_by"] in ("phi", "eta")
         assert decoder["window_size"] % 2 == 0

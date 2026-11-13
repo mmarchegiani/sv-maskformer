@@ -5,7 +5,7 @@ hepattn is used unmodified; behaviour the models here need and hepattn does not 
 
 import torch
 from hepattn.models.loss import loss_fns
-from hepattn.models.task import IncidenceBasedRegressionTask, ObjectHitMaskTask, ObjectRegressionTask
+from hepattn.models.task import HitFilterTask, IncidenceBasedRegressionTask, ObjectHitMaskTask, ObjectRegressionTask
 from hepattn.utils.masks import topk_attn
 from torch import Tensor
 
@@ -201,3 +201,37 @@ class ConfigurableObjectRegressionTask(ObjectRegressionTask):
         with torch.autocast(device_type="cuda", enabled=False):
             cost = (pred.unsqueeze(2) - target.unsqueeze(1)).abs().mean(-1)  # (B, Q, T)
         return {f"regression_{self.loss_fn_name}": self.cost_weight * cost}
+
+
+class QuerySeedTask(HitFilterTask):
+    """hepattn's `HitFilterTask` as the `query_init` encoder task of dynamic queries (`MaskFormerDecoder` with
+    `dynamic_queries: true`): it scores every constituent as the seed of an object, and the decoder initialises its
+    queries from the embeddings of the constituents above `threshold` (at most `num_queries`, the most probable ones).
+
+    Differences from the base task:
+
+    - the loss is computed over the valid constituents only (`<input_object>_valid`), the base task includes padding;
+    - an event without any seed (no target object) gives a finite loss: the base task's positive weight
+      `1 / mean(target)` is infinite there and the loss NaN. The positive weight is capped at `max_pos_weight`;
+    - `loss_weight` scales the loss (the base task has none).
+    """
+
+    def __init__(self, *args, loss_weight: float = 1.0, max_pos_weight: float = 1000.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.loss_fn != "bce":
+            raise ValueError(f"QuerySeedTask implements the bce loss only, got {self.loss_fn!r}")
+        self.loss_weight = float(loss_weight)
+        self.max_pos_weight = float(max_pos_weight)
+
+    def loss(self, outputs: dict[str, Tensor], targets: dict[str, Tensor], layer_outputs=None) -> dict[str, Tensor]:
+        logit = outputs[f"{self.input_object}_logit"]
+        target = targets[f"{self.input_object}_{self.target_field}"]
+        valid = targets[f"{self.input_object}_valid"]
+        logit, target = logit[valid].float(), target[valid].float()
+        if target.numel() == 0:
+            return {f"{self.input_object}_bce": 0.0 * outputs[f"{self.input_object}_logit"].sum()}
+        n_pos = target.sum()
+        pos_weight = torch.clamp((target.numel() - n_pos) / n_pos.clamp(min=1.0), min=1.0, max=self.max_pos_weight)
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(logit, target, pos_weight=pos_weight)
+        return {f"{self.input_object}_bce": self.loss_weight * loss}
+

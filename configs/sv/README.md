@@ -10,6 +10,7 @@ simulation. The code lives in `src/sv/` (reusing `src/maskformer/`, never `src/h
 |---|---|---|
 | `gv_tracks.yaml` | dim 256, 4 encoder + 3 decoder layers, 8 heads, 16 queries, mask attention, AdamW/OneCycle, 50 epochs (the paper's model) | training on GPU |
 | `gv_tracks_small.yaml` | dim 64, 2 + 2 layers, torch attention, 200 train events, CPU | smoke tests of the pipeline |
+| `gv_tracks_dynamic_queries.yaml` | `gv_tracks.yaml` with hepattn's dynamic queries: a per-track `query_init` task (`maskformer.models.tasks.QuerySeedTask`, target `track_seed` = the highest-pT track of each target vertex) seeds the queries from the track embeddings, at most `num_objects`; batch size 1 | training on GPU, fewer empty query slots |
 
 ## The problem, mapped onto the MaskFormer
 
@@ -49,18 +50,20 @@ its tracks are background).
 
 ```bash
 # 1. ROOT ntuples -> parquet (torch-free; one record per event: track, GV, PV_x/y/z, event ids), 80/10/10 split
-maskformer-sv convert /eos/user/m/mmarcheg/BTV/sv_reconstruction/ttbar_BTV_1.root \
-    --outdir /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet --split 0.8 0.1 0.1
+maskformer-sv convert '/eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/TTto4Q_track_*.root' \
+    --outdir /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet --split 0.8 0.1 0.1
 
 # 2. normalization parameters of the track features and the vertex targets (params/sv_*_var_transform.yaml)
-maskformer-sv norm-par --input /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/train
+maskformer-sv norm-par --input /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/train
 
 # 3. training
 maskformer-sv train --config configs/sv/gv_tracks.yaml
 maskformer-sv train -c configs/sv/gv_tracks_small.yaml --debug --max-epochs 1 --trainer.limit_train_batches 5   # smoke test
+condor_submit jobs/train_sv_condor.sub            # unattended on the CERN GPU batch: training + evaluation + plots on
+                                                  # EOS (jobs/train_sv_condor.sh; smoke=1 flavour=longlunch to validate)
 
 # 4. evaluation: predictions next to the best checkpoint + the plot chain
-maskformer-sv evaluate --config logs/<run>/config.yaml --test-path /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/test
+maskformer-sv evaluate --config logs/<run>/config.yaml --test-path /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/test
 maskformer-sv plot --input <ckpt>__test_test.parquet --outdir <dir>        # the plots again, torch-free
 ```
 

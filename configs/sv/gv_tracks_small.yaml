@@ -26,9 +26,9 @@ data:
   track_require_high_purity: false
   track_max_per_event: null
 
-  train_path: /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/train
-  valid_path: /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/val
-  test_path: /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/test
+  train_path: /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/train
+  valid_path: /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/val
+  test_path: /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/test
   data_dir: null
   split: null
 

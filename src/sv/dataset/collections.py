@@ -139,6 +139,9 @@ OPTIONAL_COLLECTIONS = {
 }
 #: GenPart branches the converter reads to locate the generated primary vertex
 GENPART_PV_BRANCHES = ("GenPart_status", "GenPart_vx", "GenPart_vy", "GenPart_vz")
+#: names of the generator-particle collection in the ntuples, in order of preference (`customGenPart` in the
+#: TTto4Q productions); the converter reads GENPART_PV_BRANCHES from the first one the file has
+GENPART_COLLECTIONS = ("GenPart", "customGenPart")
 #: status of the GenParts produced at the hard-scatter vertex (Pythia 8: incoming partons of the hardest subprocess)
 GENPART_HARD_STATUS = 21
 

@@ -1,0 +1,313 @@
+name: sv_maskformer_gv_tracks_dynamic_queries
+seed_everything: 42
+
+# Variant of gv_tracks.yaml with hepattn's DYNAMIC QUERIES: the decoder has no learned queries. A per-track task
+# after the encoder (`query_init`, in model.encoder_tasks) scores every track as the seed of a vertex (target
+# `track_seed`: the highest-pT track of each target vertex), and the queries are initialised from the encoder
+# embeddings of the tracks above its threshold, at most `num_objects` of them (the most probable); the remaining
+# slots are padded and masked out (`query_mask`). The number of queries thus follows the event instead of being 12
+# for every event. hepattn requires batch size 1 for it. Everything else is gv_tracks.yaml.
+#
+# Secondary-vertex reconstruction with a MaskFormer on CMS ttbar simulation, after "Secondary vertex reconstruction
+# with MaskFormers" (Van Stroud et al., EPJC 84 (2024) 1020, arXiv:2312.12272): the reconstructed tracks of the event
+# are the input constituents, the heavy-flavour decay vertices (the `GV` collection of the BTV ntuples) the objects
+# the model finds (object queries), assigns tracks to (mask prediction), classifies (b / c / other) and fits
+# (pT, direction, flight distance). Differences from the paper: whole events instead of jets (no jet features, up to
+# ~850 tracks and 11 vertices per event instead of 50 tracks and 5 vertices), and global track kinematics instead of
+# jet-relative ones. Model size, decoder depth, loss weights and the optimiser follow the paper (section 3).
+#
+# Data: the parquet files of `maskformer-sv convert` (sv.scripts.dataset.convert_root), here the 80/10/10 split of
+# /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/TTto4Q_track_*.root (50k events); the scale dicts were fitted on the train split with
+# `maskformer-sv norm-par`. See configs/sv/README.md.
+data:
+  track_collection: track
+  vertex_collection: GV
+
+  # Track input features (sv.dataset.features.TRACK_FEATURES, derived from the NanoAOD branches and scaled with the
+  # track dict): kinematics, impact parameters (asinh-compressed) and their significances, hit content, quality
+  # flags. Keep InputNet input_size below equal to the number of entries.
+  inputs:
+    track:
+      - pt          # log(pT)
+      - eta
+      - sinphi
+      - cosphi
+      - ip2d        # asinh(|d_xy| / 100 um)
+      - ip2dsig
+      - ip3d
+      - ip3dsig
+      - dz          # asinh(dz / 100 um), signed
+      - dzsig
+      - charge
+      - nhits
+      - npixhits
+      - nstriphits
+      - chi2
+      - qoverp
+      - highpurity
+      - passseed    # IVF seed-track selection flag
+
+  # Vertex regression targets (VERTEX_TARGETS): the hadron pT and direction and the flight distance from the
+  # generated primary vertex (lxy transverse, lz along the beam). Also available: l3d, x, y, z. Keep the regression
+  # task's `fields` and output_size below in sync.
+  targets:
+    vertex:
+      - pt
+      - eta
+      - sinphi
+      - cosphi
+      - lxy
+      - lz
+
+  # Object slots = decoder queries. Vertices per event on ttbar: mean 2.7, 99% <= 6, max 11.
+  num_objects: &num_objects 12
+  # Maximum number of tracks (max 847 per ttbar event); events with more selected tracks are dropped.
+  max_tracks: 1024
+  # Order of the tracks within an event (null: file order; phi, eta ascending; pt descending) and padding of every
+  # event to max_tracks (fixed shapes). With mask attention the order is irrelevant. hepattn's local strided window
+  # attention (see the decoder) needs sort_tracks_by: phi and pad_to_max_tracks: false instead.
+  sort_tracks_by: null
+  pad_to_max_tracks: false   # batch size 1: nothing to pad
+  # A vertex is a target when at least this many selected tracks point to it (91% of the vertices have >= 2, 99% >= 1).
+  # The paper evaluates vertices with >= 2 truth tracks but trains with single-track vertices included.
+  min_tracks_for_valid: 1
+  # Track selection, all off: every track of the event enters the model. Alternatives: track_min_pt, track_max_abs_eta,
+  # track_require_pass_seed (keeps 89% of the tracks, but 74% instead of 91% of the vertices with >= 2 tracks),
+  # track_require_high_purity, track_max_per_event (the highest-pT tracks, like the paper's 50 per jet).
+  track_min_pt: 0.0
+  track_max_abs_eta: null
+  track_require_pass_seed: false
+  track_require_high_purity: false
+  track_max_per_event: null
+
+  # The train/ val/ test/ folders of `maskformer-sv convert --split 0.8 0.1 0.1` (4000 / 500 / 500 events).
+  train_path: /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/train
+  valid_path: /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/val
+  test_path: /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/test
+  data_dir: null
+  split: null
+
+  num_workers: 8
+  num_train: -1
+  num_val: -1
+  num_test: -1
+  batch_size: 1   # hepattn's dynamic queries support batch size 1 only
+
+  # Track-feature transforms fitted on the track collection, vertex-target transforms fitted on the GV collection
+  # (maskformer-sv norm-par). The regression task below gets the vertex one through the alias.
+  scale_dict_path: &scale_dict_path params/sv_track_var_transform.yaml
+  vertex_scale_dict_path: &vertex_scale_dict_path params/sv_vertex_var_transform.yaml
+
+trainer:
+  max_epochs: 50
+  accelerator: gpu
+  devices: 1
+  precision: bf16-mixed
+  gradient_clip_val: 1.0
+  log_every_n_steps: 10
+  default_root_dir: logs
+  enable_progress_bar: True
+
+  # Comet needs COMET_API_KEY in the environment; --trainer.logger.init_args.online false runs offline without it
+  logger:
+    class_path: hepattn.utils.loggers.MyCometLogger
+    init_args:
+      project: hepattn-sv
+
+  callbacks:
+    - class_path: hepattn.callbacks.Compile
+    - class_path: hepattn.callbacks.InferenceTimer
+    - class_path: hepattn.callbacks.SaveConfig
+    - class_path: hepattn.callbacks.Checkpoint
+      init_args:
+        monitor: val/loss
+        save_last: true
+    - class_path: maskformer.callbacks.best_checkpoint.BestCheckpoint
+      init_args:
+        monitor: val/loss
+    - class_path: maskformer.callbacks.early_stopping.EarlyStopping
+      init_args:
+        patience: 10
+    - class_path: sv.callbacks.prediction_writer.SVPredictionWriter
+    - class_path: lightning.pytorch.callbacks.ModelSummary
+    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    - class_path: lightning.pytorch.callbacks.TQDMProgressBar
+      init_args:
+        refresh_rate: 10
+
+model:
+  # AdamW with a OneCycle schedule, as in the paper (warm-up from 1e-7 to 5e-4 over 5% of the steps, decay to 1e-5).
+  optimizer: AdamW
+  lrs_config:
+    initial: 1e-7
+    max: 5e-4
+    end: 1e-5
+    pct_start: 0.05
+    weight_decay: 1e-5
+    skip_scheduler: false
+  mtl: false
+  # the wrapper's metrics: 3 real classes (null = index 3), masks over the `track` constituent
+  num_classes: 4
+  constituent: track
+
+  model:
+    class_path: hepattn.models.MaskFormer
+    init_args:
+      dim: &dim 256
+
+      input_nets:
+        class_path: torch.nn.ModuleList
+        init_args:
+          modules:
+            - class_path: hepattn.models.InputNet
+              init_args:
+                input_name: track
+                fields:
+                  - features
+                net:
+                  class_path: hepattn.models.Dense
+                  init_args:
+                    input_size: 18  # len(data.inputs.track)
+                    output_size: *dim
+                    hidden_layers: [256]
+                # the paper adds a sinusoidal encoding of the track angles (and impact parameters) to the embedding
+                posenc:
+                  class_path: hepattn.models.posenc.FourierPositionEncoder
+                  init_args:
+                    input_name: track
+                    dim: *dim
+                    fields: [eta, phi]
+                    scale: 0.1
+
+      # 4 self-attention layers over the tracks, feed-forward width 2 x dim (hepattn's default), 8 heads
+      encoder:
+        class_path: hepattn.models.Encoder
+        init_args:
+          num_layers: 4
+          dim: *dim
+          attn_type: flash-varlen   # `torch` on GPUs without flash attention (lxplus T4s): --attn-type torch at evaluation
+          hybrid_norm: true
+          value_residual: true
+          num_register_tokens: 8
+          attn_kwargs:
+            num_heads: 8
+
+      # 3 decoder layers: query self-attention, masked cross-attention to the tracks (the paper's mechanism: each
+      # query attends to the tracks of the mask it predicted at the previous layer, mask_attention_threshold below),
+      # track update from the queries. hepattn's alternative, a fixed window per query over the phi-sorted tracks:
+      # mask_attention: false, local_strided_attn: true, window_size: 512 (even), window_wrap: true, with
+      # data.batch_size: 1, data.sort_tracks_by: phi, data.pad_to_max_tracks: false.
+      decoder:
+        num_decoder_layers: 3
+        num_queries: *num_objects   # the maximum number of queries: the most probable seeds are kept
+        mask_attention: true
+        use_query_masks: false
+        dynamic_queries: true       # queries from the seed tracks of the `query_init` encoder task
+        decoder_layer_config:
+          dim: *dim
+          hybrid_norm: true
+          attn_kwargs:
+            num_heads: 8
+
+      # the input whose embeddings seed the queries (hepattn's default is "hit")
+      dynamic_query_source: track
+
+      # Tasks on the encoder output, before the decoder. `query_init` (the name is fixed by hepattn) scores each
+      # track as a vertex seed; tracks with probability >= threshold become queries. The positive class is ~0.7% of
+      # the tracks (2.7 seeds in ~390), which the loss re-weights. A low threshold gives more queries (duplicates,
+      # which the null class must reject), a high one loses vertices whose seed is missed: tune it on the
+      # valid_recall / nh_pred_true metrics of the task.
+      encoder_tasks:
+        class_path: torch.nn.ModuleList
+        init_args:
+          modules:
+            - class_path: maskformer.models.tasks.QuerySeedTask
+              init_args:
+                name: query_init
+                input_object: track
+                target_field: seed
+                dim: *dim
+                threshold: 0.5
+                loss_fn: bce
+                loss_weight: 5.0
+
+      matcher:
+        class_path: hepattn.models.matcher.Matcher
+        init_args:
+          default_solver: scipy
+          adaptive_solver: false
+          parallel_solver: true
+          n_jobs: 8
+
+      # Loss (paper, eq. 2): 0.5 class CE + 2 L1 regression + 12 mask BCE + 8 mask Dice; the matching cost is the
+      # same combination (DETR-style). hepattn reports the loss per decoder layer (intermediate losses).
+      tasks:
+        class_path: torch.nn.ModuleList
+        init_args:
+          modules:
+            - class_path: hepattn.models.task.ObjectClassificationTask
+              init_args:
+                name: classification
+                input_object: query
+                output_object: pflow
+                target_object: particle
+                num_classes: 4  # B, BtoC, C, Other (+ null = index 4)
+                losses:
+                  object_ce: 0.5
+                costs:
+                  object_ce: 0.5
+                net:
+                  class_path: hepattn.models.Dense
+                  init_args:
+                    input_size: *dim
+                    output_size: 5  # num_classes + 1 (null)
+                    hidden_layers: [256, 256, 128]
+                # ~78% of the 12 queries are null for a ttbar event (2.7 vertices on average): down-weight the null class
+                null_weight: 0.1
+                # [B, BtoC, C, Other]: 32% / 45% / 23% / 0.4% of the vertices
+                class_weights: [1.0, 1.0, 1.0, 1.0]
+                mask_queries: false
+                has_intermediate_loss: true
+
+            # track-to-vertex assignment: the dot product of a mask token per query with the track embeddings. The
+            # row-wise variant is hepattn's task with the mask losses correct for batches of more than one event.
+            - class_path: maskformer.models.tasks.RowwiseObjectHitMaskTask
+              init_args:
+                name: mask
+                input_constituent: track
+                input_object: query
+                output_object: pflow
+                target_object: particle
+                losses:
+                  mask_bce: 12.0
+                  mask_dice: 8.0
+                costs:
+                  mask_bce: 12.0
+                  mask_dice: 8.0
+                dim: *dim
+                null_weight: 1.0
+                logit_scale: 1.0
+                pred_threshold: 0.5              # a track belongs to the vertex above this probability
+                mask_attention_threshold: 0.1    # looser for the cross-attention mask of the next decoder layer
+                has_intermediate_loss: true
+
+            # vertex fit from the query embedding: pT, eta, sin/cos phi, lxy, lz in the scaled space of the vertex dict
+            - class_path: maskformer.models.tasks.ConfigurableObjectRegressionTask
+              init_args:
+                name: regression
+                input_object: query
+                output_object: pflow
+                target_object: particle
+                fields: [pt, eta, sinphi, cosphi, lxy, lz]   # = data.targets.vertex
+                loss: l1
+                loss_weight: 2.0
+                cost_weight: 2.0
+                use_cost: true
+                dim: *dim
+                net:
+                  class_path: hepattn.models.Dense
+                  init_args:
+                    input_size: *dim
+                    output_size: 6  # len(fields)
+                    hidden_layers: [256, 256, 128]
+                has_intermediate_loss: true

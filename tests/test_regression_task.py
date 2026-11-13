@@ -17,7 +17,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 from hepattn.models import Dense  # noqa: E402
 
-from maskformer.models.tasks import ConfigurableObjectRegressionTask  # noqa: E402
+from maskformer.models.tasks import ConfigurableObjectRegressionTask, QuerySeedTask  # noqa: E402
 
 FIELDS = ["pt", "eta", "lxy"]
 
@@ -57,3 +57,22 @@ def test_loss_with_targets_and_cost():
     cost = task.cost(outputs, targets)["regression_l1"]
     assert cost.shape == (1, 4, 4) and torch.allclose(cost[0, :2, :2], 2.0 * (pred.unsqueeze(1) - target.unsqueeze(0)).abs().mean(-1))
     assert torch.isfinite(cost).all()  # the NaN targets of the invalid objects are replaced by 0 in the cost
+
+
+def test_query_seed_task_loss_is_finite_and_ignores_padding():
+    """QuerySeedTask (the `query_init` task of the dynamic queries): finite loss without any seed, padding ignored,
+    the hepattn prediction keys the decoder reads."""
+    torch.manual_seed(0)
+    task = QuerySeedTask(name="query_init", input_object="track", target_field="seed", dim=8, threshold=0.5, loss_weight=3.0)
+    x = {"track_embed": torch.randn(1, 6, 8)}
+    out = task(x)
+    valid = torch.tensor([[True, True, True, True, False, False]])
+    no_seed = {"track_seed": torch.zeros(1, 6, dtype=torch.bool), "track_valid": valid}
+    assert torch.isfinite(task.loss(out, no_seed)["track_bce"])
+    seeds = {"track_seed": torch.tensor([[True, False, False, False, False, False]]), "track_valid": valid}
+    loss = task.loss(out, seeds)["track_bce"]
+    logit = out["track_logit"][0, :4]
+    expected = torch.nn.functional.binary_cross_entropy_with_logits(logit, seeds["track_seed"][0, :4].float(), pos_weight=torch.tensor(3.0))
+    assert torch.allclose(loss, 3.0 * expected)
+    preds = task.predict(out)
+    assert set(preds) == {"track_seed_prob", "track_seed"} and preds["track_seed"].dtype == torch.bool

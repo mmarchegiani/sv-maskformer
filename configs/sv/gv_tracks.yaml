@@ -10,7 +10,7 @@ seed_everything: 42
 # jet-relative ones. Model size, decoder depth, loss weights and the optimiser follow the paper (section 3).
 #
 # Data: the parquet files of `maskformer-sv convert` (sv.scripts.dataset.convert_root), here the 80/10/10 split of
-# /eos/user/m/mmarcheg/BTV/sv_reconstruction/ttbar_BTV_1.root; the scale dicts were fitted on the train split with
+# /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/TTto4Q_track_*.root (50k events); the scale dicts were fitted on the train split with
 # `maskformer-sv norm-par`. See configs/sv/README.md.
 data:
   track_collection: track
@@ -53,7 +53,7 @@ data:
       - lz
 
   # Object slots = decoder queries. Vertices per event on ttbar: mean 2.7, 99% <= 6, max 11.
-  num_objects: &num_objects 16
+  num_objects: &num_objects 12
   # Maximum number of tracks (max 847 per ttbar event); events with more selected tracks are dropped.
   max_tracks: 1024
   # Order of the tracks within an event (null: file order; phi, eta ascending; pt descending) and padding of every
@@ -74,9 +74,9 @@ data:
   track_max_per_event: null
 
   # The train/ val/ test/ folders of `maskformer-sv convert --split 0.8 0.1 0.1` (4000 / 500 / 500 events).
-  train_path: /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/train
-  valid_path: /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/val
-  test_path: /eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/test
+  train_path: /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/train
+  valid_path: /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/val
+  test_path: /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/test
   data_dir: null
   split: null
 
@@ -232,8 +232,8 @@ model:
                     input_size: *dim
                     output_size: 5  # num_classes + 1 (null)
                     hidden_layers: [256, 256, 128]
-                # ~83% of the 16 queries are null for a ttbar event: down-weight the null class
-                null_weight: 0.5
+                # ~78% of the 12 queries are null for a ttbar event (2.7 vertices on average): down-weight the null class
+                null_weight: 0.1
                 # [B, BtoC, C, Other]: 32% / 45% / 23% / 0.4% of the vertices
                 class_weights: [1.0, 1.0, 1.0, 1.0]
                 mask_queries: false

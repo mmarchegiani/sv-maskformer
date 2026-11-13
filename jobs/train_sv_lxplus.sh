@@ -1,7 +1,7 @@
 #!/bin/bash
 # Trains the SV MaskFormer on an lxplus-gpu machine (no Slurm) inside the CVMFS image, with EOS reachable through the
 # caller's Kerberos ticket (kinit first). The committed config reads the parquet files on EOS
-# (/eos/user/m/mmarcheg/BTV/sv_reconstruction/parquet/{train,val,test}); override with --data.train_path etc.
+# (/eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/{train,val,test}); override with --data.train_path etc.
 #
 # Usage (in tmux/screen): bash jobs/train_sv_lxplus.sh [config] [extra Lightning arguments...]
 #   bash jobs/train_sv_lxplus.sh configs/sv/gv_tracks.yaml --trainer.logger.init_args.online false --attn-type torch
@@ -25,6 +25,6 @@ export APPTAINERENV_HGCAL_REPO_ROOT="$BASE_PATH"
 export APPTAINERENV_KRB5CCNAME="FILE:$KRB5CC"
 export APPTAINERENV_COMET_API_KEY="${COMET_API_KEY:-}"
 apptainer exec --nv \
-  -B /cvmfs -B /tmp -B "/eos/user/${USER:0:1}/$USER" -B "$BASE_PATH" -B /etc/sysconfig/ngbauth-submit -B "$(dirname "$KRB5CC")" \
+  -B /cvmfs -B /tmp -B "/eos/user/${USER:0:1}/$USER" -B /eos/cms/store/group/phys_btag -B "$BASE_PATH" -B /etc/sysconfig/ngbauth-submit -B "$(dirname "$KRB5CC")" \
   --pwd "$BASE_PATH" "$APPTAINER_IMAGE" \
   python -m sv train --config "$CONFIG" "$@"

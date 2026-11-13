@@ -164,6 +164,24 @@ def test_sorted_unpadded_items_and_collate(sample):
     assert_batch_finite(inputs, targets, constituent="track")
 
 
+def test_track_seed_is_the_highest_pt_track_of_each_target(sample):
+    """`track_seed` (the target of the dynamic queries' `query_init` task): one track per target vertex, its
+    highest-pT one; none for non-targets and padding."""
+    ds = make(sample)
+    n_seeds = 0
+    for i in range(len(ds)):
+        inputs, targets = ds[i]
+        seed, mask, pt = targets["track_seed"], targets["particle_track_valid"], inputs["track_pt"]
+        assert seed.shape == inputs["track_valid"].shape and not seed[~inputs["track_valid"]].any()
+        assert int(seed.sum()) == int(targets["particle_valid"].sum())
+        for j in torch.nonzero(targets["particle_valid"]).flatten().tolist():
+            members = torch.nonzero(mask[j]).flatten()
+            best = members[pt[members].argmax()]
+            assert seed[best] and int(seed[members].sum()) == 1
+        n_seeds += int(seed.sum())
+    assert n_seeds > 0
+
+
 def test_candidate_vertex_selection_is_checked(sample, tmp_path, capsys):
     """A file whose vertices fail the converter's candidate selection is refused; one converted before the selection
     existed (no GV_nSelectedDaughters) is accepted with a note."""

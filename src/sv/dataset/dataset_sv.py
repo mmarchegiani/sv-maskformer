@@ -16,6 +16,9 @@ target_object, shared with the HGCAL pipeline), the constituent `track`:
       particle_class        (num_objects,)             0 B, 1 BtoC, 2 C, 3 Other; RESIDUAL_CLASS for non-targets and padding
       particle_track_valid  (num_objects, L)           the mask target: the tracks of each target vertex (track_hadidx)
       track_valid           (L,)                       the padding mask again (hepattn's mask task reads it here)
+      track_seed            (L,)                       the seed track of each target vertex: its highest-pT selected
+                                                       track (one per target; the target of the `query_init` task
+                                                       that initialises hepattn's dynamic queries)
 
 L = `max_tracks` (`pad_to_max_tracks`, the default: fixed shapes) or the event's own number of tracks (the data
 module's collate then pads a batch to its longest event). The tracks keep the file order unless `sort_tracks_by`
@@ -407,12 +410,20 @@ class SVDataset(Dataset):
         linked = hadidx >= 0
         mask[hadidx[linked], torch.arange(n_tracks)[linked]] = True
         mask[:n_vertices][~is_target] = False  # the tracks of a non-target vertex are background
+        # the seed track of each target vertex: its highest-pT track
+        seed = torch.zeros(length, dtype=torch.bool)
+        if n_tracks and mask.any():
+            pt = torch.zeros(length, dtype=torch.float32)
+            pt[:n_tracks] = self.track_pt[ts:te]
+            rows = mask.any(-1)
+            seed[torch.where(mask, pt.unsqueeze(0), torch.full_like(pt, -1.0).unsqueeze(0)).argmax(-1)[rows]] = True
 
         targets = {
             "particle_valid": particle_valid,
             "particle_class": particle_class,
             "particle_track_valid": mask,
             "track_valid": track_valid,
+            "track_seed": seed,
         }
         for name in self.target_names:
             values = torch.full((self.num_objects,), float("nan"), dtype=torch.float32)
@@ -423,7 +434,8 @@ class SVDataset(Dataset):
 
 
 #: tensors with a track axis, and which axis it is, for the collate
-TRACK_AXIS = {"track_features": 0, "track_valid": 0, "track_pt": 0, "track_eta": 0, "track_phi": 0, "particle_track_valid": 1}
+TRACK_AXIS = {"track_features": 0, "track_valid": 0, "track_pt": 0, "track_eta": 0, "track_phi": 0, "track_seed": 0,
+              "particle_track_valid": 1}
 
 
 def _pad_axis(tensor: torch.Tensor, axis: int, length: int) -> torch.Tensor:

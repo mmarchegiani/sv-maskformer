@@ -10,7 +10,8 @@ Each input file becomes `<outdir>/<stem>.parquet` (or, with `--split`, a share o
 so the splits of several files can be given to the data module as directories). One record per event:
 
     run, luminosityBlock, event              event identifiers
-    PV_x, PV_y, PV_z                         the generated primary vertex (vertex of the first status-21 GenPart;
+    PV_x, PV_y, PV_z                         the generated primary vertex (vertex of the first status-21 GenPart,
+                                             or customGenPart in the ntuples that name the collection so;
                                              fallback: the production vertex of a prompt vertex, then 0)
     track                                    struct of the track branches (sv.dataset.collections.TRACK_BRANCHES)
     GV                                       struct of the vertex branches plus the derived truth fields
@@ -50,6 +51,7 @@ from sv.dataset.collections import (  # noqa: E402
     DAUGHTER_BRANCHES,
     DAUGHTER_COLLECTION,
     EVENT_BRANCHES,
+    GENPART_COLLECTIONS,
     GENPART_HARD_STATUS,
     GENPART_PV_BRANCHES,
     OPTIONAL_COLLECTIONS,
@@ -220,6 +222,16 @@ def convert_chunk(chunk: ak.Array, keep: tuple[str, ...] = (), cutflow: dict[str
     return ak.zip(fields, depth_limit=1)
 
 
+def genpart_aliases(available) -> dict[str, str]:
+    """Branch of the file -> GENPART_PV_BRANCHES name, for the first generator-particle collection of
+    GENPART_COLLECTIONS the file has completely (empty when it is `GenPart` itself or none is there)."""
+    for collection in GENPART_COLLECTIONS:
+        names = {b.replace("GenPart", collection, 1): b for b in GENPART_PV_BRANCHES}
+        if all(name in available for name in names):
+            return {name: b for name, b in names.items() if name != b}
+    return {}
+
+
 def branches_to_read(keep: tuple[str, ...] = ()) -> list[str]:
     names = [*EVENT_BRANCHES, *GENPART_PV_BRANCHES, *TRACK_BRANCHES, *VERTEX_BRANCHES, *DAUGHTER_BRANCHES]
     for collection in keep:
@@ -234,12 +246,17 @@ def convert_file(path: str, step: int = 1000, max_events: int | None = None, kee
     with uproot.open(path) as f:
         tree = f[TREE]
         n_total = tree.num_entries if max_events is None else min(tree.num_entries, max_events)
-        missing = [b for b in branches_to_read(keep) if b not in tree]
+        aliases = genpart_aliases(tree.keys())  # file branch -> canonical GenPart name
+        to_file = {canonical: name for name, canonical in aliases.items()}
+        names = [to_file.get(b, b) for b in branches_to_read(keep)]
+        missing = [b for b in names if b not in tree]
         if missing:
             note = " (needed for the candidate vertex selection)" if any(b in DAUGHTER_BRANCHES for b in missing) else ""
             raise ValueError(f"{path}:{TREE} lacks the branches {missing}{note}")
         cutflow: dict[str, int] = {}
-        for chunk in tree.iterate(branches_to_read(keep), step_size=step, entry_stop=n_total, library="ak"):
+        for chunk in tree.iterate(names, step_size=step, entry_stop=n_total, library="ak"):
+            if aliases:
+                chunk = ak.zip({aliases.get(name, name): chunk[name] for name in chunk.fields}, depth_limit=1)
             chunks.append(convert_chunk(chunk, keep, cutflow))
             n_done += len(chunk)
             print(f"  {path}: {n_done}/{n_total} events", flush=True)
