@@ -133,6 +133,10 @@ class EvalData:
       t_prob.
     Fakes (`f_*`): f_event, f_class, f_prob, f_n_tracks, f_<field>.
     Events: n_events, e_n_vertices, e_n_targets, e_n_fakes.
+    Slots (`s_*`, the raw output of every query slot, when the file has the `slot` collection: `has_slots`):
+      s_event, s_score (1 - p_null), s_vertex (index into the `v_*` arrays of the matched target, -1 if none),
+      s_pred_valid, s_n_tracks, s_n_correct (at the model's working point), and the flattened (slot, track) pairs
+      p_slot (index into the `s_*` arrays), p_prob (mask probability), p_truth (truth mask of the matched target).
     """
 
     def __init__(self, path, max_events=None, track_collection="track", vertex_collection="GV"):
@@ -140,7 +144,7 @@ class EvalData:
         self.track_collection = track_collection
         self.vertex_collection = vertex_collection
         schema = pq.read_metadata(path).schema.to_arrow_schema().names
-        columns = [c for c in (track_collection, vertex_collection, "fakeGV", "n_fake_vertices", "event_number") if c in schema]
+        columns = [c for c in (track_collection, vertex_collection, "fakeGV", "slot", "n_fake_vertices", "event_number") if c in schema]
         df = ak.from_arrow(pq.read_table(path, columns=columns))
         if max_events is not None:
             df = df[:max_events]
@@ -206,6 +210,25 @@ class EvalData:
             self.f_n_tracks = np.zeros(0, dtype=np.int64)
             self.f_prob = np.zeros((0, len(prob_names)))
         self.e_n_fakes = n_f.astype(np.int64)
+
+        # slots: the raw output of every query (files written before the `slot` collection existed do not have it)
+        self.has_slots = "slot" in df.fields and "slot_mask_prob" in df["slot"].fields
+        if self.has_slots:
+            sl = df["slot"]
+            n_s = np.asarray(ak.to_numpy(ak.num(sl["slot_target_idx"], axis=1)))
+            self.s_event = np.repeat(np.arange(self.n_events), n_s)
+            active = _flat(sl["slot_active"]).astype(bool)
+            self.s_score = np.where(active, 1.0 - _flat(sl["slot_prob_null"]).astype(np.float64), -1.0)  # padded slots never pass
+            target = _flat(sl["slot_target_idx"]).astype(np.int64)
+            v_off = np.concatenate([[0], np.cumsum(n_v)])
+            self.s_vertex = np.where(target >= 0, v_off[self.s_event] + target, -1)
+            self.s_pred_valid = _flat(sl["slot_pred_valid"]).astype(bool)
+            self.s_n_tracks = _flat(sl["slot_n_tracks"]).astype(np.int64)
+            self.s_n_correct = _flat(sl["slot_n_correct"]).astype(np.int64)
+            n_p = np.asarray(ak.to_numpy(ak.flatten(ak.num(sl["slot_mask_prob"], axis=2))))
+            self.p_slot = np.repeat(np.arange(len(self.s_event)), n_p)
+            self.p_prob = np.asarray(ak.to_numpy(ak.flatten(sl["slot_mask_prob"], axis=None))).astype(np.float64)
+            self.p_truth = np.asarray(ak.to_numpy(ak.flatten(sl["slot_truth_mask"], axis=None))).astype(bool)
 
     # ---- convenience ----------------------------------------------------------------------
 

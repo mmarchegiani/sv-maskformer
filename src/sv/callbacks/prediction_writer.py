@@ -30,6 +30,17 @@ at the top level:
   fakeGV                  one entry per predicted vertex not matched to a target: fakeGV_slot, fakeGV_class,
                           fakeGV_prob_<class>, fakeGV_n_tracks, fakeGV_<target> (un-scaled)
   n_fake_vertices, event_number
+  slot                    the raw output of every query slot, before any threshold, to scan the working point offline
+                          (fake rate vs efficiency, plot_sv_eval.roc_section); one entry per slot:
+                            slot_prob_<class>    class probabilities (the vertex score is 1 - slot_prob_null)
+                            slot_target_idx      index into GV of the target vertex matched to the slot, -1 if none
+                            slot_active          False for the padded slots of a dynamic-query model
+                            slot_pred_valid      the slot is a predicted vertex at the model's working point
+                            slot_n_tracks, slot_n_correct   tracks in the predicted mask / shared with the truth mask
+                                                 at the model's working point (pred_threshold)
+                            slot_mask_prob       mask probability of every selected track (in the order of the
+                                                 selected tracks of the event), one list per slot
+                            slot_truth_mask      truth mask of the matched target on the same tracks (False if none)
 
 The mean test loss per layer/task/term goes to `<ckpt>__test[_<suff>]_losses.json` (base class).
 """
@@ -71,6 +82,7 @@ class SVPredictionWriter(PredictionWriterBase):
         self._gv = defaultdict(list)  # per-vertex fields, one array per event
         self._track = defaultdict(list)  # per-track fields, one array per event (all tracks of the file)
         self._fake = defaultdict(list)  # per-fake fields, one array per event
+        self._slot = defaultdict(list)  # per-slot fields, one array per event; (Q, n_sel) for the two mask fields
         self._n_fake = []
 
     def collect_batch(self, inputs, targets, outputs, preds, event_number: np.ndarray) -> None:
@@ -84,6 +96,8 @@ class SVPredictionWriter(PredictionWriterBase):
         mask_valid = final["mask"][f"pflow_{self.track_collection}_valid"].detach().cpu()  # (B, Q, N)
         mask_prob = outputs["final"]["mask"][f"pflow_{self.track_collection}_logit"].detach().float().sigmoid().cpu()
         regression = self._unscale_regression_preds(final) if "regression" in final else {}
+        query_mask = targets.get("query_mask")  # (B, Q), dynamic queries only: the slot holds a real query
+        query_mask = query_mask.cpu() if query_mask is not None else None
 
         for i, event in enumerate(event_number.tolist()):
             row = self._by_event[event]
@@ -157,9 +171,31 @@ class SVPredictionWriter(PredictionWriterBase):
                 fk[field].append(values[i].numpy().astype(np.float32)[fake_slots])
             self._n_fake.append(int(len(fake_slots)))
 
+            # ---- every slot, before any threshold (the offline working-point scan)
+            sl = self._slot
+            for k, name in enumerate(PROB_NAMES):
+                sl[f"prob_{name}"].append(cpf[:, k])
+            sl["target_idx"].append(np.where(matched_q, np.arange(len(matched_q)), -1).astype(np.int64))
+            sl["active"].append(query_mask[i].numpy().astype(bool) if query_mask is not None else np.ones(len(matched_q), dtype=bool))
+            sl["pred_valid"].append(valid_q)
+            sl["n_tracks"].append(mask_i.sum(-1).astype(np.int64))
+            sl["n_correct"].append((mask_i & truth_i & matched_q[:, None]).sum(-1).astype(np.int64))
+            sl["mask_prob"].append(mask_prob[i, :, :n_sel].numpy().astype(np.float32))
+            sl["truth_mask"].append(truth_i & matched_q[:, None])
+
     def _input_events(self, event_numbers: np.ndarray) -> ak.Array:
         print(f"Loading the test file(s) to merge in the predictions: {self.test_path} ({len(self.ds.files)} files)")
         return ak.from_arrow(read_parquet_files(self.ds.files))[event_numbers]
+
+    @staticmethod
+    def _to_doubly_jagged(per_event_arrays: list[np.ndarray]) -> ak.Array:
+        """A (events, slots, tracks) jagged array from per-event (Q, n) arrays, preserving the dtype."""
+        if not per_event_arrays:
+            return ak.Array([])
+        flat = np.concatenate([a.reshape(-1) for a in per_event_arrays])
+        inner = np.concatenate([np.full(a.shape[0], a.shape[1], dtype=np.int64) for a in per_event_arrays])
+        outer = np.array([a.shape[0] for a in per_event_arrays], dtype=np.int64)
+        return ak.unflatten(ak.unflatten(flat, inner), outer)
 
     def build_output(self, event_numbers: np.ndarray) -> ak.Array:
         out = self._input_events(event_numbers)
@@ -176,6 +212,9 @@ class SVPredictionWriter(PredictionWriterBase):
         out = ak.with_field(out, tracks, self.track_collection)
         fake = ak.zip({f"fakeGV_{name}": self._to_jagged(arrays) for name, arrays in self._fake.items()}, depth_limit=1)
         out = ak.with_field(out, fake, "fakeGV")
+        slot = ak.zip({f"slot_{name}": (self._to_doubly_jagged(arrays) if arrays and arrays[0].ndim == 2 else self._to_jagged(arrays))
+                       for name, arrays in self._slot.items()}, depth_limit=1)
+        out = ak.with_field(out, slot, "slot")
         out = ak.with_field(out, ak.Array(np.asarray(self._n_fake, dtype=np.int64)), "n_fake_vertices")
         out = ak.with_field(out, ak.Array(event_numbers), "event_number")
         return out

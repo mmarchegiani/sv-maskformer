@@ -12,6 +12,9 @@ Produces, under ``--outdir``:
   regression/       residuals of every regressed vertex property, predicted vs true, resolution vs the true value
   tracks/           the track assignment: where the tracks of the heavy-flavour vertices end up, and how many
                     background tracks are claimed by a predicted vertex
+  roc/              fake rate vs efficiency for a scan of the working point (vertex-score cut x mask threshold x
+                    minimum tracks per predicted vertex), with its Pareto front; needs the `slot` collection of the
+                    prediction file (skipped for older files)
 
 and ``metrics.json`` + ``summary.txt``; the chain (run_sv_plot_chain.py) adds resolution/, the absolute and relative
 residual of every regressed property (plot_sv_resolution.py). A truth vertex enters the efficiencies when it was a
@@ -44,6 +47,12 @@ LXY_BINS = np.array([0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5, 2
 PT_BINS = np.array([10, 15, 20, 30, 40, 60, 80, 120, 200, 400])
 NTRACK_BINS = np.arange(0.5, 9.5, 1.0)
 NVERTEX_BINS = np.arange(-0.5, 9.5, 1.0)
+
+#: the working-point scan of roc_section: cut on the vertex score 1 - p(null), mask-probability threshold of the
+#: track assignment and minimum number of tracks of a predicted vertex
+ROC_SCORE_CUTS = np.r_[np.linspace(0.0, 0.95, 39), 0.96, 0.97, 0.98, 0.99, 0.995, 0.999]
+ROC_MASK_THRESHOLDS = np.round(np.arange(0.1, 0.95, 0.1), 2)
+ROC_MIN_TRACKS = (1, 2, 3)
 
 #: regressed fields: label, unit, residual kind ("rel": (pred - true)/true, "abs": pred - true) and residual range
 FIELDS = {
@@ -382,6 +391,162 @@ def tracks_section(d: EvalData, outdir: str, metrics: dict) -> None:
     savefig(fig, out, "track_prob")
 
 
+# ---- fake rate vs efficiency ---------------------------------------------------------------
+
+
+def _slot_truth(d: EvalData):
+    """Per slot: the selected truth tracks of its matched target (0 if unmatched), whether the target enters the
+    efficiency (>= EVAL_MIN_TRACKS tracks) and whether the slot is ignored (matched to a target below that)."""
+    matched = d.s_vertex >= 0
+    n_truth = np.zeros(len(matched), dtype=np.int64)
+    n_truth[matched] = d.v_n_sel[d.s_vertex[matched]]
+    evaluated = matched & (n_truth >= EVAL_MIN_TRACKS)
+    return n_truth, evaluated, matched & ~evaluated
+
+
+def _loose(n_pred, n_correct, n_truth, evaluated):
+    """Loose match of a slot to its target: track recall and purity >= 0.5 (as EvalData.v_loose)."""
+    return evaluated & (n_pred > 0) & (2 * n_correct >= n_truth) & (2 * n_correct >= n_pred)
+
+
+def _rates(n_good, n_fake, n_targets, n_events) -> dict:
+    """Efficiency and fake rate (with binomial errors) from the counts of loose-matched and other predicted vertices."""
+    n_good, n_fake = np.asarray(n_good, dtype=np.float64), np.asarray(n_fake, dtype=np.float64)
+    eff, eff_err = binomial_error(n_good, np.full_like(n_good, n_targets))
+    fr, fr_err = binomial_error(n_fake, n_good + n_fake)
+    empty = (n_good + n_fake) == 0  # no predicted vertex: the fake rate is undefined
+    return {"n_matched": n_good, "n_fake": n_fake, "efficiency": eff, "efficiency_error": eff_err,
+            "fake_rate": np.where(empty, np.nan, fr), "fake_rate_error": np.where(empty, np.nan, fr_err),
+            "fakes_per_event": n_fake / max(n_events, 1)}
+
+
+def scan_working_points(d: EvalData, score_cuts=ROC_SCORE_CUTS, mask_thresholds=ROC_MASK_THRESHOLDS, min_tracks=ROC_MIN_TRACKS) -> dict:
+    """Efficiency and fake rate of every configuration (score cut t, mask threshold m, minimum tracks k), as flat arrays.
+
+    A slot is a predicted vertex when 1 - p(null) > t and at least k tracks have a mask probability >= m. The
+    efficiency is the fraction of the target vertices with >= EVAL_MIN_TRACKS selected tracks whose slot is a predicted
+    vertex loosely matched to them (recall, purity >= 0.5 at the threshold m); the fake rate is the fraction of the
+    predicted vertices that are not such a match (unmatched slots and matches of bad quality). The slots matched to a
+    target below EVAL_MIN_TRACKS are left out of both. The Hungarian matching does not depend on (t, m, k).
+    """
+    score_cuts = np.asarray(score_cuts, dtype=np.float64)
+    n_truth, evaluated, ignored = _slot_truth(d)
+    n_slots = len(d.s_score)
+    n_targets = int((d.v_is_target & (d.v_n_sel >= EVAL_MIN_TRACKS)).sum())
+    cols = {"score_cut": [], "mask_threshold": [], "min_tracks": [], "n_good": [], "n_fake": []}
+    for m in mask_thresholds:
+        on = d.p_prob >= m
+        n_pred = np.bincount(d.p_slot[on], minlength=n_slots)
+        n_correct = np.bincount(d.p_slot[on & d.p_truth], minlength=n_slots)
+        loose = _loose(n_pred, n_correct, n_truth, evaluated)
+        for k in min_tracks:
+            candidate = (n_pred >= k) & ~ignored
+            for name, scores in (("n_good", d.s_score[candidate & loose]), ("n_fake", d.s_score[candidate & ~loose])):
+                cols[name].append(len(scores) - np.searchsorted(np.sort(scores), score_cuts, side="right"))
+            cols["score_cut"].append(score_cuts)
+            cols["mask_threshold"].append(np.full(len(score_cuts), m))
+            cols["min_tracks"].append(np.full(len(score_cuts), k))
+    scan = {name: np.concatenate(values) if values else np.zeros(0) for name, values in cols.items()}
+    n_good, n_fake = scan.pop("n_good"), scan.pop("n_fake")
+    return {**scan, **_rates(n_good, n_fake, n_targets, d.n_events)}
+
+
+def model_working_point(d: EvalData, min_tracks: int = 1) -> dict:
+    """The same quantities at the working point of the model: the class argmax decides that a slot is a vertex, the
+    tracks are those above the model's pred_threshold."""
+    n_truth, evaluated, ignored = _slot_truth(d)
+    loose = _loose(d.s_n_tracks, d.s_n_correct, n_truth, evaluated)
+    predicted = d.s_pred_valid & (d.s_n_tracks >= min_tracks) & ~ignored
+    n_targets = int((d.v_is_target & (d.v_n_sel >= EVAL_MIN_TRACKS)).sum())
+    return {k: float(v) for k, v in _rates((predicted & loose).sum(), (predicted & ~loose).sum(), n_targets, d.n_events).items()}
+
+
+def pareto_front(efficiency, fake_rate) -> np.ndarray:
+    """Indices of the configurations no other one beats in both efficiency (higher) and fake rate (lower), by
+    increasing efficiency. Configurations without a predicted vertex (NaN fake rate) are left out."""
+    efficiency, fake_rate = np.asarray(efficiency, dtype=np.float64), np.asarray(fake_rate, dtype=np.float64)
+    idx = np.flatnonzero(np.isfinite(fake_rate))
+    order = idx[np.lexsort((fake_rate[idx], -efficiency[idx]))]  # efficiency descending, then fake rate ascending
+    keep, best = [], np.inf
+    for i in order:
+        if fake_rate[i] < best:
+            keep.append(i)
+            best = fake_rate[i]
+    return np.asarray(keep[::-1], dtype=np.int64)
+
+
+def _roc_axes(ax, fake_rates):
+    ax.set_xlabel(f"vertex-finding efficiency (loose, $\\geq$ {EVAL_MIN_TRACKS} tracks)")
+    ax.set_ylabel("fake rate (predicted vertices, no loose match)")
+    ax.set_xlim(0, 1.02)
+    fake_rates = np.asarray(fake_rates, dtype=np.float64)
+    if (fake_rates[np.isfinite(fake_rates)] > 0).any():
+        ax.set_yscale("log")
+
+
+def roc_section(d: EvalData, outdir: str, metrics: dict) -> None:
+    out = os.path.join(outdir, "roc")
+    if not getattr(d, "has_slots", False):
+        metrics["roc"] = {"skipped": "the prediction file has no `slot` collection (written before the working-point scan): rerun the evaluation"}
+        print("[roc] skipped: no `slot` collection in the prediction file")
+        return
+    scan = scan_working_points(d)
+    eff, fr = scan["efficiency"], scan["fake_rate"]
+    front = pareto_front(eff, fr)
+    wps = {k: model_working_point(d, k) for k in ROC_MIN_TRACKS}
+    config = lambda i: {name: float(values[i]) for name, values in scan.items()}  # noqa: E731
+    metrics["roc"] = {
+        "efficiency": f"target vertices with >= {EVAL_MIN_TRACKS} selected tracks whose slot is a predicted vertex loosely matched to them",
+        "fake_rate": "predicted vertices without a loose match (unmatched slots and bad matches) / predicted vertices",
+        "predicted_vertex": "1 - p(null) > score_cut and >= min_tracks tracks with mask probability >= mask_threshold",
+        "n_configurations": int(len(eff)),
+        "score_cuts": [float(x) for x in ROC_SCORE_CUTS], "mask_thresholds": [float(x) for x in ROC_MASK_THRESHOLDS], "min_tracks": list(ROC_MIN_TRACKS),
+        "working_point": {f"min_tracks_{k}": wp for k, wp in wps.items()},
+        "pareto_front": [config(i) for i in front],
+    }
+    os.makedirs(out, exist_ok=True)
+    names = list(scan)
+    np.savetxt(os.path.join(out, "scan.csv"), np.column_stack([scan[n] for n in names]), delimiter=",", header=",".join(names), comments="")
+
+    def working_points(ax):
+        for (k, wp), marker in zip(wps.items(), ("*", "P", "X")):
+            ax.plot(wp["efficiency"], wp["fake_rate"], marker, color="black", ms=14, mfc="none", mew=1.5, ls="none",
+                    label=f"model working point, $\\geq$ {k} track{'s' if k > 1 else ''}")
+
+    # every configuration and the Pareto front
+    fig, ax = plt.subplots()
+    ok = np.isfinite(fr)
+    ax.plot(eff[ok], fr[ok], ".", color=CMS_gray, ms=4, alpha=0.6, label=f"{int(ok.sum())} configurations")
+    ax.plot(eff[front], fr[front], "-o", color=CMS_red, ms=4, lw=2, label="Pareto front")
+    working_points(ax)
+    _roc_axes(ax, fr)
+    ax.legend(loc="upper left")
+    savefig(fig, out, "fake_rate_vs_efficiency")
+
+    # the score scan at the mask threshold closest to 0.5, per minimum number of tracks
+    m_ref = float(ROC_MASK_THRESHOLDS[np.argmin(np.abs(ROC_MASK_THRESHOLDS - 0.5))])
+    fig, ax = plt.subplots()
+    for k, color in zip(ROC_MIN_TRACKS, (CMS_blue, CMS_orange, CMS_red)):
+        s = (scan["mask_threshold"] == m_ref) & (scan["min_tracks"] == k) & ok
+        ax.errorbar(eff[s], fr[s], xerr=scan["efficiency_error"][s], yerr=scan["fake_rate_error"][s], fmt="-o", ms=3, color=color,
+                    label=f"score scan, $\\geq$ {k} track{'s' if k > 1 else ''}")
+    working_points(ax)
+    _roc_axes(ax, fr)
+    ax.legend(loc="upper left", title=f"mask threshold {m_ref:g}")
+    savefig(fig, out, "fake_rate_vs_efficiency_score_scan")
+
+    # the score scan per mask threshold, at the evaluation's minimum number of tracks
+    k_ref = EVAL_MIN_TRACKS if EVAL_MIN_TRACKS in ROC_MIN_TRACKS else ROC_MIN_TRACKS[0]
+    fig, ax = plt.subplots()
+    cmap = plt.get_cmap("viridis")
+    for j, m in enumerate(ROC_MASK_THRESHOLDS):
+        s = (scan["mask_threshold"] == m) & (scan["min_tracks"] == k_ref) & ok
+        ax.plot(eff[s], fr[s], "-", color=cmap(j / max(len(ROC_MASK_THRESHOLDS) - 1, 1)), lw=1.8, label=f"{m:g}")
+    _roc_axes(ax, fr)
+    ax.legend(loc="upper left", title=f"mask threshold ($\\geq$ {k_ref} tracks)", ncol=2)
+    savefig(fig, out, "fake_rate_vs_efficiency_mask_thresholds")
+
+
 def write_summary(d: EvalData, metrics: dict, outdir: str) -> None:
     e, f, c, t = metrics["efficiency"], metrics["fakes"], metrics["classification"], metrics["tracks"]
     lines = [
@@ -411,6 +576,11 @@ def write_summary(d: EvalData, metrics: dict, outdir: str) -> None:
         if isinstance(v, dict):
             lines.append(f"  {field:6s} median {v['median']:+.4f}  sigma68 {v['sigma68']:.4f}  <|res|> {v['mean_abs']:.4f}"
                          + (f"  within 50%: {v['within_50pct']:.3f}" if v.get("within_50pct") is not None else ""))
+    if metrics.get("roc", {}).get("working_point"):
+        lines += ["", "Working point (fake rate = predicted vertices without a loose match / predicted vertices; scan in roc/):"]
+        for name, wp in metrics["roc"]["working_point"].items():
+            lines.append(f"  {name.replace('min_tracks_', '>= ')} track(s): efficiency {wp['efficiency']:.3f}, fake rate {wp['fake_rate']:.3f}, "
+                         f"{wp['fakes_per_event']:.3f} fakes per event")
     if metrics.get("resolution"):
         from plot_sv_resolution import summary_lines  # lazily: that module imports EVAL_MIN_TRACKS from this one
 
@@ -436,6 +606,7 @@ def run(d: EvalData, outdir: str) -> dict:
     classification_section(d, outdir, metrics)
     regression_section(d, outdir, metrics)
     tracks_section(d, outdir, metrics)
+    roc_section(d, outdir, metrics)
     with open(os.path.join(outdir, "metrics.json"), "w") as fh:
         json.dump(metrics, fh, indent=2, default=float)
     write_summary(d, metrics, outdir)
