@@ -87,9 +87,25 @@ def test_slot_collection(tmp_path, monkeypatch):
     assert np.allclose(ak.to_numpy(ak.flatten(back["slot"]["slot_mask_prob"], axis=None)), np.concatenate([a.reshape(-1) for a in sl["mask_prob"]]))
 
 
-def test_slot_active_follows_the_query_mask():
+def test_dynamic_queries_query_mask_and_seeds():
+    """hepattn puts the dynamic-query mask and the `query_init` logits in outputs["encoder"] (the batch targets never
+    get `query_mask`: MaskFormer.loss adds it to a copy)."""
     writer = make_writer()
     targets, outputs, preds, _ = make_batch()
-    targets["query_mask"] = torch.tensor([[True, True, False], [True, False, False]])
+    seed_prob = torch.tensor([[0.9, 0.2, 0.6, 0.1], [0.3, 0.8, 0.1, 0.5]])
+    targets["track_seed"] = torch.tensor([[True, False, False, False], [False, True, False, False]])
+    outputs["encoder"] = {"query_mask": torch.tensor([[True, True, False], [True, False, False]]),
+                          "query_init": {"track_logit": torch.logit(seed_prob)}}
     writer.collect_batch({}, targets, outputs, preds, np.array([10, 11]))
     assert [a.tolist() for a in writer._slot["active"]] == [[True, True, False], [True, False, False]]
+    # per track of the file (5 and 4), the unselected tracks filled with -1 / False
+    sp = writer._track["seed_prob"]
+    assert np.allclose(sp[0], [0.9, 0.2, 0.6, -1.0, 0.1], atol=1e-6) and np.allclose(sp[1], [0.3, 0.8, -1.0, 0.1], atol=1e-6)
+    assert [a.tolist() for a in writer._track["seed"]] == [[True, False, False, False, False], [False, True, False, False]]
+
+
+def test_no_seed_fields_without_dynamic_queries():
+    writer = make_writer()
+    targets, outputs, preds, _ = make_batch()
+    writer.collect_batch({}, targets, outputs, preds, np.array([10, 11]))
+    assert "seed_prob" not in writer._track and "seed" not in writer._track

@@ -25,6 +25,9 @@ on the track collection (`track_*`, one entry per track of the file):
                           no predicted vertex claims it, -2 when that query is unmatched (a fake vertex)
   track_pred_slot         the claiming query's slot (-1 none), to recover the tracks of the fake vertices
   track_pred_prob         the mask probability of the claiming query (0 when none)
+  track_seed              dynamic queries only: the track is the seed of a target vertex (the `query_init` target)
+  track_seed_prob         dynamic queries only: the `query_init` seed probability (-1 for unselected tracks); the
+                          queries are the tracks with seed_prob >= threshold, at most num_queries (the most probable)
 
 at the top level:
   fakeGV                  one entry per predicted vertex not matched to a target: fakeGV_slot, fakeGV_class,
@@ -96,8 +99,16 @@ class SVPredictionWriter(PredictionWriterBase):
         mask_valid = final["mask"][f"pflow_{self.track_collection}_valid"].detach().cpu()  # (B, Q, N)
         mask_prob = outputs["final"]["mask"][f"pflow_{self.track_collection}_logit"].detach().float().sigmoid().cpu()
         regression = self._unscale_regression_preds(final) if "regression" in final else {}
-        query_mask = targets.get("query_mask")  # (B, Q), dynamic queries only: the slot holds a real query
-        query_mask = query_mask.cpu() if query_mask is not None else None
+        # (B, Q), dynamic queries only: the slot holds a real query. hepattn puts it in the encoder outputs and in a
+        # *copy* of the targets made inside MaskFormer.loss, never in the batch targets seen here
+        encoder = outputs.get("encoder", {})
+        query_mask = encoder.get("query_mask", targets.get("query_mask"))
+        query_mask = query_mask.detach().cpu() if query_mask is not None else None
+        # (B, N), dynamic queries only: the `query_init` seed probability of every track and its target
+        seed_logit = encoder.get("query_init", {}).get(f"{self.track_collection}_logit")
+        seed_prob = seed_logit.detach().float().sigmoid().cpu() if seed_logit is not None else None
+        seed_target = targets.get(f"{self.track_collection}_seed")
+        seed_target = seed_target.cpu() if seed_target is not None else None
 
         for i, event in enumerate(event_number.tolist()):
             row = self._by_event[event]
@@ -153,7 +164,12 @@ class SVPredictionWriter(PredictionWriterBase):
             selected = np.zeros(n_all, dtype=bool)
             selected[local] = True
             tr["selected"].append(selected)
-            for name, values, fill in (("pred_match_idx", match, -1), ("pred_slot", slot, -1), ("pred_prob", np.where(claimed, best_prob, 0.0).astype(np.float32), 0.0)):
+            per_track = [("pred_match_idx", match, -1), ("pred_slot", slot, -1), ("pred_prob", np.where(claimed, best_prob, 0.0).astype(np.float32), 0.0)]
+            if seed_prob is not None:
+                per_track.append(("seed_prob", seed_prob[i, :n_sel].numpy().astype(np.float32), -1.0))
+            if seed_target is not None:
+                per_track.append(("seed", seed_target[i, :n_sel].numpy().astype(bool), False))
+            for name, values, fill in per_track:
                 full = np.full(n_all, fill, dtype=values.dtype)
                 full[local] = values
                 tr[name].append(full)
