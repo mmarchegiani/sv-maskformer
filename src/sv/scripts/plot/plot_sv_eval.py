@@ -15,6 +15,9 @@ Produces, under ``--outdir``:
   roc/              fake rate vs efficiency for a scan of the working point (vertex-score cut x mask threshold x
                     minimum tracks per predicted vertex), with its Pareto front; needs the `slot` collection of the
                     prediction file (skipped for older files)
+  dedup/            duplicate removal: non-maximum suppression of the predicted vertices on their shared tracks, then
+                    a one-to-one loose re-matching to the targets (the training's Hungarian match often keeps the
+                    duplicate and drops the matched copy); fake rate vs efficiency per overlap threshold
 
 and ``metrics.json`` + ``summary.txt``; the chain (run_sv_plot_chain.py) adds resolution/, the absolute and relative
 residual of every regressed property (plot_sv_resolution.py). A truth vertex enters the efficiencies when it was a
@@ -53,6 +56,13 @@ NVERTEX_BINS = np.arange(-0.5, 9.5, 1.0)
 ROC_SCORE_CUTS = np.r_[np.linspace(0.0, 0.95, 39), 0.96, 0.97, 0.98, 0.99, 0.995, 0.999]
 ROC_MASK_THRESHOLDS = np.round(np.arange(0.1, 0.95, 0.1), 2)
 ROC_MIN_TRACKS = (1, 2, 3)
+
+#: duplicate removal of dedup_section: maximum shared fraction of the tracks of the smaller vertex (>= 1: none), the
+#: reported default, the mask threshold of the track sets and the vertex-score cuts of the scan
+DEDUP_OVERLAPS = (1.0, 0.8, 0.5, 0.3, 0.0)
+DEDUP_DEFAULT_OVERLAP = 0.5
+DEDUP_MASK_THRESHOLD = 0.5
+DEDUP_SCORE_CUTS = np.round(np.r_[np.arange(0.0, 0.95, 0.05), 0.97, 0.99], 3)
 
 #: regressed fields: label, unit, residual kind ("rel": (pred - true)/true, "abs": pred - true) and residual range
 FIELDS = {
@@ -547,6 +557,116 @@ def roc_section(d: EvalData, outdir: str, metrics: dict) -> None:
     savefig(fig, out, "fake_rate_vs_efficiency_mask_thresholds")
 
 
+def _slot_matrices(d: EvalData):
+    """Per event: the range of its slots and the (slot, track) pair offsets, to rebuild the (Q, n_sel) matrices."""
+    slot_off = np.concatenate([[0], np.cumsum(np.bincount(d.s_event, minlength=d.n_events))])
+    pair_off = np.concatenate([[0], np.cumsum(np.bincount(d.p_slot, minlength=len(d.s_event)))])
+    return slot_off, pair_off
+
+
+def dedup_pass(d: EvalData, overlap_max: float, candidate: np.ndarray, mask_threshold: float = DEDUP_MASK_THRESHOLD,
+               min_tracks: int = EVAL_MIN_TRACKS, slot_off=None, pair_off=None):
+    """Duplicate removal and re-matching of the candidate slots, event by event.
+
+    The predicted vertices are the candidate slots with >= min_tracks tracks of mask probability >= mask_threshold,
+    by descending vertex score. Non-maximum suppression: a vertex is dropped when it shares more than overlap_max of
+    the tracks of the smaller of the two with an already kept vertex (overlap_max >= 1: no suppression). The kept
+    vertices are then matched one to one to the targets, greedily by descending score: a vertex matches the unmatched
+    target with which it shares the most tracks, if the match is loose (recall, purity >= 0.5). Returns, per kept
+    vertex: its score and its outcome (1 matched to an evaluated target, 0 fake, -1 matched to a target below
+    EVAL_MIN_TRACKS, ignored as in the other sections). Both steps are greedy in score order, so the result for a
+    score cut t is the subset of the vertices with score > t: one pass serves the whole score scan.
+    """
+    if slot_off is None:
+        slot_off, pair_off = _slot_matrices(d)
+    scores, outcome = [], []
+    for e in range(d.n_events):
+        a, b = slot_off[e], slot_off[e + 1]
+        if b == a:
+            continue
+        n_pairs = pair_off[b] - pair_off[a]
+        n = n_pairs // (b - a)
+        on = (d.p_prob[pair_off[a]:pair_off[b]] >= mask_threshold).reshape(b - a, n)
+        truth = d.p_truth[pair_off[a]:pair_off[b]].reshape(b - a, n)
+        tgt = np.flatnonzero(d.s_vertex[a:b] >= 0)
+        T, tn = truth[tgt], truth[tgt].sum(1)
+        evaluated = d.v_n_sel[d.s_vertex[a:b][tgt]] >= EVAL_MIN_TRACKS
+        n_on = on.sum(1)
+        cand = np.flatnonzero(candidate[a:b] & (n_on >= min_tracks))
+        cand = cand[np.argsort(-d.s_score[a:b][cand], kind="stable")]
+        kept, used = [], np.zeros(len(tgt), dtype=bool)
+        for q in cand:
+            if overlap_max < 1.0 and any((on[q] & on[p]).sum() > overlap_max * min(n_on[q], n_on[p]) for p in kept):
+                continue
+            kept.append(q)
+            n_cor = (T & on[q]).sum(1)
+            ok = ~used & (tn > 0) & (2 * n_cor >= tn) & (2 * n_cor >= n_on[q])
+            scores.append(d.s_score[a + q])
+            if ok.any():
+                j = np.flatnonzero(ok)[np.argmax(n_cor[ok])]
+                used[j] = True
+                outcome.append(1 if evaluated[j] else -1)
+            else:
+                outcome.append(0)
+    return np.asarray(scores, dtype=np.float64), np.asarray(outcome, dtype=np.int64)
+
+
+def dedup_section(d: EvalData, outdir: str, metrics: dict) -> None:
+    out = os.path.join(outdir, "dedup")
+    if not getattr(d, "has_slots", False):
+        metrics["dedup"] = {"skipped": "the prediction file has no `slot` collection: rerun the evaluation"}
+        print("[dedup] skipped: no `slot` collection in the prediction file")
+        return
+    slot_off, pair_off = _slot_matrices(d)
+    n_targets = int((d.v_is_target & (d.v_n_sel >= EVAL_MIN_TRACKS)).sum())
+    active = d.s_score >= 0
+    cuts = np.asarray(DEDUP_SCORE_CUTS, dtype=np.float64)
+    result = {"description": (
+        f"predicted vertices with >= {EVAL_MIN_TRACKS} tracks of mask probability >= {DEDUP_MASK_THRESHOLD}; non-maximum suppression "
+        "by vertex score (drop a vertex sharing > overlap_max of the tracks of the smaller one with a kept vertex); one-to-one "
+        "greedy loose re-matching to the targets. fake rate = unmatched kept vertices / kept vertices"),
+        "default_overlap_max": DEDUP_DEFAULT_OVERLAP, "working_point": {}, "scan": {}}
+    fig, ax = plt.subplots()
+    cmap = plt.get_cmap("viridis")
+    for j, o in enumerate(DEDUP_OVERLAPS):
+        name = "none" if o >= 1 else f"{o:g}"
+        # the model's working point: the class argmax decides that a slot is a vertex
+        s, oc = dedup_pass(d, o, d.s_pred_valid & active, slot_off=slot_off, pair_off=pair_off)
+        wp = {k: float(v) for k, v in _rates((oc == 1).sum(), (oc == 0).sum(), n_targets, d.n_events).items()}
+        result["working_point"][name] = wp
+        # the score scan: every active slot is a candidate, cut on 1 - p(null)
+        s, oc = dedup_pass(d, o, active, slot_off=slot_off, pair_off=pair_off)
+        order = np.argsort(s)
+        good = np.r_[np.cumsum((oc[order] == 1)[::-1])[::-1], 0]
+        fake = np.r_[np.cumsum((oc[order] == 0)[::-1])[::-1], 0]
+        first = np.searchsorted(s[order], cuts, side="right")  # vertices with score > cut
+        rates = _rates(good[first], fake[first], n_targets, d.n_events)
+        result["scan"][name] = {"score_cut": cuts.tolist(), **{k: np.asarray(v).tolist() for k, v in rates.items()}}
+        color = "black" if o >= 1 else cmap(j / max(len(DEDUP_OVERLAPS) - 1, 1))
+        ax.plot(rates["efficiency"], rates["fake_rate"], "-o", ms=3, color=color, label=f"overlap > {name}" if o < 1 else "no duplicate removal")
+        ax.plot(wp["efficiency"], wp["fake_rate"], "*", ms=14, mfc="none", mew=1.5, color=color)
+    ax.set_xlabel("efficiency (loose, re-matched)")
+    ax.set_ylabel("fake rate")
+    ax.set_ylim(0, 1)
+    ax.legend(loc="upper left", fontsize="x-small", title=r"score scan ($\star$: model working point)")
+    savefig(fig, out, "fake_rate_vs_efficiency")
+
+    fig, ax = plt.subplots()
+    for j, o in enumerate(DEDUP_OVERLAPS):
+        name = "none" if o >= 1 else f"{o:g}"
+        sc = result["scan"][name]
+        color = "black" if o >= 1 else cmap(j / max(len(DEDUP_OVERLAPS) - 1, 1))
+        ax.plot(sc["efficiency"], sc["fakes_per_event"], "-o", ms=3, color=color, label=f"overlap > {name}" if o < 1 else "no duplicate removal")
+    ax.set_xlabel("efficiency (loose, re-matched)")
+    ax.set_ylabel("fake vertices per event")
+    ax.legend(loc="upper left", fontsize="x-small")
+    savefig(fig, out, "fakes_per_event_vs_efficiency")
+    os.makedirs(out, exist_ok=True)
+    with open(os.path.join(out, "scan.json"), "w") as fh:
+        json.dump(result["scan"], fh, indent=1, default=float)
+    metrics["dedup"] = {k: v for k, v in result.items() if k != "scan"}
+
+
 def write_summary(d: EvalData, metrics: dict, outdir: str) -> None:
     e, f, c, t = metrics["efficiency"], metrics["fakes"], metrics["classification"], metrics["tracks"]
     lines = [
@@ -581,6 +701,13 @@ def write_summary(d: EvalData, metrics: dict, outdir: str) -> None:
         for name, wp in metrics["roc"]["working_point"].items():
             lines.append(f"  {name.replace('min_tracks_', '>= ')} track(s): efficiency {wp['efficiency']:.3f}, fake rate {wp['fake_rate']:.3f}, "
                          f"{wp['fakes_per_event']:.3f} fakes per event")
+    if metrics.get("dedup", {}).get("working_point"):
+        dd = metrics["dedup"]
+        lines += ["", f"Duplicate removal + re-matching (model working point, >= {EVAL_MIN_TRACKS} tracks; scan in dedup/):"]
+        for name, wp in dd["working_point"].items():
+            label = "no removal  " if name == "none" else f"overlap > {name:4s}"
+            lines.append(f"  {label}: efficiency {wp['efficiency']:.3f}, fake rate {wp['fake_rate']:.3f}, {wp['fakes_per_event']:.3f} fakes per event"
+                         + ("   <- default" if name == f"{dd['default_overlap_max']:g}" else ""))
     if metrics.get("resolution"):
         from plot_sv_resolution import summary_lines  # lazily: that module imports EVAL_MIN_TRACKS from this one
 
@@ -607,6 +734,7 @@ def run(d: EvalData, outdir: str) -> dict:
     regression_section(d, outdir, metrics)
     tracks_section(d, outdir, metrics)
     roc_section(d, outdir, metrics)
+    dedup_section(d, outdir, metrics)
     with open(os.path.join(outdir, "metrics.json"), "w") as fh:
         json.dump(metrics, fh, indent=2, default=float)
     write_summary(d, metrics, outdir)

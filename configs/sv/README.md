@@ -11,6 +11,7 @@ simulation. The code lives in `src/sv/` (reusing `src/maskformer/`, never `src/h
 | `gv_tracks.yaml` | dim 256, 4 encoder + 3 decoder layers, 8 heads, 16 queries, mask attention, AdamW/OneCycle, 50 epochs (the paper's model) | training on GPU |
 | `gv_tracks_small.yaml` | dim 64, 2 + 2 layers, torch attention, 200 train events, CPU | smoke tests of the pipeline |
 | `gv_tracks_dynamic_queries.yaml` | `gv_tracks.yaml` with hepattn's dynamic queries: a per-track `query_init` task (`maskformer.models.tasks.QuerySeedTask`, target `track_seed` = the highest-pT track of each target vertex) seeds the queries from the track embeddings, at most `num_objects`; batch size 1 | training on GPU, fewer empty query slots |
+| `gv_tracks_dynamic_queries_null0p3.yaml` | `gv_tracks_dynamic_queries.yaml` with classification `null_weight` 0.3 (was 0.1) and `query_init` `max_pos_weight` 10 (was the default 1000) | fewer fake vertices: a less vertex-biased classifier and fewer seeds |
 
 ## The problem, mapped onto the MaskFormer
 

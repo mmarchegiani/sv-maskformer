@@ -271,6 +271,42 @@ def test_roc_section_in_the_chain(tmp_path):
     assert "Working point (fake rate" in (tmp_path / "plots" / "summary.txt").read_text()
 
 
+def test_dedup_pass():
+    """One event, 5 selected tracks, a target on tracks 0-2: slot 0 is its Hungarian match (tracks 0, 1, score 0.8),
+    slot 1 an unmatched duplicate with all three tracks and a higher score, slot 2 a fake on tracks 3, 4."""
+    from types import SimpleNamespace
+
+    on = np.array([[1, 1, 0, 0, 0], [1, 1, 1, 0, 0], [0, 0, 0, 1, 1]], dtype=bool)
+    truth = np.zeros_like(on)
+    truth[0, :3] = True
+    d = SimpleNamespace(n_events=1, s_event=np.zeros(3, dtype=np.int64), s_score=np.array([0.8, 0.9, 0.7]),
+                        s_vertex=np.array([0, -1, -1]), v_n_sel=np.array([3]), p_slot=np.repeat(np.arange(3), 5),
+                        p_prob=np.where(on, 0.9, 0.1).reshape(-1), p_truth=truth.reshape(-1))
+    cand = np.ones(3, dtype=bool)
+    # no removal: the duplicate (higher score) takes the target, the Hungarian match becomes a fake
+    s, oc = ev.dedup_pass(d, 1.0, cand)
+    assert s.tolist() == [0.9, 0.8, 0.7] and oc.tolist() == [1, 0, 0]
+    # removal: the lower-score copy shares 2 of its 2 tracks with the kept duplicate and is dropped
+    s, oc = ev.dedup_pass(d, 0.5, cand)
+    assert s.tolist() == [0.9, 0.7] and oc.tolist() == [1, 0]
+    # a target below EVAL_MIN_TRACKS: matched vertices are ignored (-1), not fakes
+    d.v_n_sel = np.array([1])
+    assert ev.dedup_pass(d, 0.5, cand)[1].tolist() == [-1, 0]
+    d.v_n_sel = np.array([3])
+    # min_tracks: the 2-track vertices do not qualify at 3
+    assert ev.dedup_pass(d, 1.0, cand, min_tracks=3)[1].tolist() == [1]
+
+
+def test_dedup_section_in_the_chain(tmp_path):
+    result = run_chain(str(synthetic_predictions(tmp_path / "pred.parquet")), str(tmp_path / "plots"))
+    assert result["failures"] == {}, result["failures"]
+    dd = result["metrics"]["dedup"]
+    assert set(dd["working_point"]) == {"none" if o >= 1 else f"{o:g}" for o in ev.DEDUP_OVERLAPS}
+    for name in ("fake_rate_vs_efficiency", "fakes_per_event_vs_efficiency"):
+        assert (tmp_path / "plots" / "dedup" / f"{name}.png").is_file()
+    assert "Duplicate removal" in (tmp_path / "plots" / "summary.txt").read_text()
+
+
 def test_roc_section_skipped_without_slots(tmp_path):
     result = run_chain(str(synthetic_predictions(tmp_path / "pred.parquet", slots=False)), str(tmp_path / "plots"))
     assert result["failures"] == {}, result["failures"]
