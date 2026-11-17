@@ -19,7 +19,8 @@
 # On an A100 / H100 / H200 (compute capability >= 8) the config's flash attention and bf16 are used; on a T4 the
 # script falls back to the torch attention backend and fp32 (no bf16 there, fp16 can overflow). The image's PyTorch
 # has no kernels for the V100s (capability 7.0), which the submit file excludes.
-# Comet: the logger runs offline unless COMET_API_KEY reaches the job (it is not forwarded by the submit file).
+# Comet: the job reads COMET_API_KEY from the `export COMET_API_KEY=...` line of ~/.bashrc on AFS (COMET_KEY_FILE to
+# use another file); without a key the logger runs offline.
 
 set -u
 
@@ -62,10 +63,18 @@ BINDINGS=(-B /cvmfs -B /tmp -B "/eos/user/${USER:0:1}/$USER" -B /eos/cms/store/g
 export APPTAINERENV_PYTHONPATH="$BASE_PATH/src"
 export APPTAINERENV_HGCAL_REPO_ROOT="$BASE_PATH"
 export APPTAINERENV_KRB5CCNAME="FILE:$KRB5CC"
+# Comet key: condor does not carry the submit shell's environment, and `getenv` would expose the key in the job
+# ClassAd (condor_q -l), so it is read from the `export COMET_API_KEY=...` line of ~/.bashrc on AFS instead.
+BASHRC=${COMET_KEY_FILE:-/afs/cern.ch/user/${USER:0:1}/$USER/.bashrc}
+if [ -z "${COMET_API_KEY:-}" ] && [ -r "$BASHRC" ]; then
+  COMET_API_KEY=$(sed -nE "s/^[[:space:]]*export[[:space:]]+COMET_API_KEY=[\"']?([^\"'[:space:]#]+).*/\1/p" "$BASHRC" | tail -1)
+fi
 LOGGER_ARGS=()
 if [ -n "${COMET_API_KEY:-}" ]; then
   export APPTAINERENV_COMET_API_KEY="$COMET_API_KEY"
+  echo "Comet: API key found, logging online"
 else
+  echo "WARNING: no COMET_API_KEY (environment or $BASHRC): the Comet logger runs offline"
   LOGGER_ARGS=(--trainer.logger.init_args.online false)
 fi
 run_in_container() { apptainer exec --nv "${BINDINGS[@]}" --pwd "$BASE_PATH" "$APPTAINER_IMAGE" "$@"; }
