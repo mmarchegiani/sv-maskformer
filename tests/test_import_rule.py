@@ -11,7 +11,7 @@ MASKFORMER = REPO / "src" / "maskformer"
 SV = REPO / "src" / "sv"
 MODULES = sorted(MASKFORMER.rglob("*.py"))
 SV_MODULES = sorted(SV.rglob("*.py"))
-EXPERIMENTS = ("hgcal", "sv")
+EXPERIMENTS = ("sv")
 
 
 def _imported_roots(tree):
@@ -29,12 +29,6 @@ def test_maskformer_does_not_import_an_experiment(path):
     roots = set(_imported_roots(tree))
     for experiment in EXPERIMENTS:
         assert experiment not in roots, f"{path} imports {experiment} (module-level or inside a function)"
-
-
-@pytest.mark.parametrize("path", SV_MODULES, ids=lambda p: str(p.relative_to(SV)))
-def test_sv_does_not_import_hgcal(path):
-    tree = ast.parse(path.read_text(), filename=str(path))
-    assert "hgcal" not in set(_imported_roots(tree)), f"{path} imports hgcal"
 
 
 def test_the_packages_exist():

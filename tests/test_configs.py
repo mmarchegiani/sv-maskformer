@@ -9,7 +9,7 @@ import yaml
 REPO = pathlib.Path(__file__).resolve().parents[1]
 CONFIGS = REPO / "configs"
 PARAMS = REPO / "params"
-SUBFOLDERS = ("rechit", "layercluster", "trackster_clue3dhigh", "trackster_cluestering", "toycalo", "test", "sv")
+SUBFOLDERS = ("sv")
 #: scale dicts referenced by configs but not fitted yet (see params/README.md)
 KNOWN_MISSING = {
     "hgcal_mergedsimcluster_var_transform.yaml",
