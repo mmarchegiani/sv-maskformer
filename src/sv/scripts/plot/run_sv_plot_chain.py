@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """The SV plot chain on one prediction file (what `maskformer-sv evaluate` runs after the test loop).
 
-Loads the file once (``sv_eval_common.EvalData``) and runs the sections of ``plot_sv_eval`` (efficiency/, fakes/,
+Loads the file once (``sv_eval_common.EvalData``) and runs the sections of ``plot_sv_eval`` (composition/, efficiency/, fakes/,
 classification/, regression/, tracks/, roc/, dedup/) and of ``plot_sv_resolution`` (resolution/: the absolute and relative
 residual of every regressed property), then writes metrics.json and summary.txt. A failing section is reported
 (and recorded in ``<outdir>/plot_chain_failures.txt``) without stopping the others. Needs awkward, numpy, pyarrow
@@ -26,7 +26,7 @@ from sv_eval_common import EvalData  # noqa: E402
 import plot_sv_eval as ev  # noqa: E402
 import plot_sv_resolution as res  # noqa: E402
 
-SECTIONS = ("efficiency", "fakes", "classification", "regression", "tracks", "roc", "dedup", "resolution")
+SECTIONS = ("composition", "efficiency", "fakes", "classification", "regression", "tracks", "roc", "dedup", "resolution")
 
 
 def section(name: str):

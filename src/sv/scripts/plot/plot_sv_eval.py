@@ -3,6 +3,8 @@
 
 Produces, under ``--outdir``:
 
+  composition/      class balance of the truth vertices (B, BtoC, C, Other) of the evaluated dataset, as pie charts: the
+                    target vertices of the model, and those entering the efficiencies (>= EVAL_MIN_TRACKS tracks)
   efficiency/       vertex-finding efficiency, "perfect" (track recall = purity = 1) and "loose" (both >= 0.5), vs
                     the flight distance lxy, the hadron pT, the number of truth tracks, the number of vertices in the
                     event, and per truth class (B, BtoC, C, Other); the recall / purity distributions
@@ -92,6 +94,32 @@ def _wrap(phi):
 # --------------------------------------------------------------------------- #
 # sections
 # --------------------------------------------------------------------------- #
+
+
+def composition_section(d: EvalData, outdir: str, metrics: dict) -> None:
+    """Class balance of the truth vertices: one pie chart per selection, the counts in the metrics."""
+    out = os.path.join(outdir, "composition")
+    m = metrics["composition"] = {"classes": list(d.class_names)}
+    for key, sel, title in (
+        ("targets", d.v_is_target, "target vertices"),
+        (f"targets_ge{EVAL_MIN_TRACKS}_tracks", d.v_is_target & (d.v_n_sel >= EVAL_MIN_TRACKS), f"target vertices with $\\geq$ {EVAL_MIN_TRACKS} tracks"),
+    ):
+        counts = np.bincount(d.v_class[sel], minlength=len(d.class_names))[:len(d.class_names)]
+        total = int(counts.sum())
+        m[key] = {"n_vertices": total, "counts": {c: int(n) for c, n in zip(d.class_names, counts)},
+                  "fractions": {c: float(n / max(total, 1)) for c, n in zip(d.class_names, counts)}}
+        if total == 0:
+            continue
+        shown = [c for c in range(len(d.class_names)) if counts[c] > 0]
+        fig, ax = plt.subplots()
+        wedges, _, _ = ax.pie(
+            counts[shown], colors=[class_color(c) for c in shown], startangle=90, counterclock=False,
+            autopct=lambda pct: f"{pct:.1f}%" if pct >= 3 else "", pctdistance=0.72,
+            wedgeprops=dict(edgecolor="white", linewidth=2), textprops=dict(color="white", fontweight="bold"))
+        ax.axis("equal")
+        ax.legend(wedges, [f"{d.class_names[c]}: {int(counts[c])} ({100 * counts[c] / total:.1f}%)" for c in shown],
+                  title=f"{total} {title}\n{d.n_events} events", loc="center left", bbox_to_anchor=(0.95, 0.5))
+        savefig(fig, out, "class_balance" if key == "targets" else f"class_balance_ge{EVAL_MIN_TRACKS}_tracks")
 
 
 def efficiency_section(d: EvalData, outdir: str, metrics: dict) -> None:
@@ -669,10 +697,13 @@ def dedup_section(d: EvalData, outdir: str, metrics: dict) -> None:
 
 def write_summary(d: EvalData, metrics: dict, outdir: str) -> None:
     e, f, c, t = metrics["efficiency"], metrics["fakes"], metrics["classification"], metrics["tracks"]
+    comp = metrics.get("composition", {}).get("targets")
     lines = [
         f"SV MaskFormer evaluation of {d.path}",
         f"  {d.summary()}",
         "",
+        *([f"Class balance of the {comp['n_vertices']} target vertices: "
+           + ", ".join(f"{k} {comp['counts'][k]} ({100 * v:.1f}%)" for k, v in comp["fractions"].items()), ""] if comp else []),
         f"Vertex finding ({e['selection']}, n = {e['n_vertices']}):",
         f"  found (matched query predicts a vertex): {e['found']['efficiency']:.3f} +- {e['found']['error']:.3f}",
         f"  loose  (recall, purity >= 0.5):          {e['loose']['efficiency']:.3f} +- {e['loose']['error']:.3f}",
@@ -728,6 +759,7 @@ def write_summary(d: EvalData, metrics: dict, outdir: str) -> None:
 def run(d: EvalData, outdir: str) -> dict:
     os.makedirs(outdir, exist_ok=True)
     metrics: dict = {"input": d.path, "n_events": d.n_events, "n_vertices": d.n_vertices, "eval_min_tracks": EVAL_MIN_TRACKS}
+    composition_section(d, outdir, metrics)
     efficiency_section(d, outdir, metrics)
     fakes_section(d, outdir, metrics)
     classification_section(d, outdir, metrics)

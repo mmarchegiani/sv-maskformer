@@ -144,7 +144,10 @@ def test_chain_runs_without_failures(tmp_path):
     assert metrics["fakes"]["n_fake_vertices"] == 15
     assert "pt" in metrics["regression"] and "confusion_rows_true_cols_pred" in metrics["classification"]
     assert metrics["tracks"]["assigned_to_right_vertex"] > 0.5
-    for section in ("efficiency", "fakes", "classification", "regression", "tracks", "roc", "resolution"):
+    comp = metrics["composition"]["targets"]
+    assert sum(comp["counts"].values()) == comp["n_vertices"] > 0 and abs(sum(comp["fractions"].values()) - 1) < 1e-9
+    assert (outdir / "composition" / "class_balance.png").is_file()
+    for section in ("composition", "efficiency", "fakes", "classification", "regression", "tracks", "roc", "resolution"):
         assert any((outdir / section).glob("*.png")), section
     summary = (outdir / "summary.txt").read_text()
     assert summary.startswith("SV MaskFormer evaluation") and "Resolution (loose-matched target vertices" in summary

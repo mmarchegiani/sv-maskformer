@@ -10,7 +10,7 @@ mean test losses, then runs the SV plot chain (src/sv/scripts/plot/run_sv_plot_c
         --trainer.precision 32-true --matmul_precision highest
 
 Omit --ckpt_path to use the best checkpoint (lowest val loss) next to the config. The plots go to
-`<ckpt_dir>/<ckpt_stem>__test[_<test_suff>]_plots/` (efficiency/, fakes/, classification/, regression/, tracks/,
+`<ckpt_dir>/<ckpt_stem>__test[_<test_suff>]_plots/` (composition/, efficiency/, fakes/, classification/, regression/, tracks/,
 metrics.json, summary.txt); `--plot_dir` moves them, `--skip_plots true` skips them, `--plot_max_events N` plots the
 first N events only. The chain runs as a subprocess of the same interpreter (`SV_PLOT_PYTHON` overrides it); a
 plotting failure never fails the evaluation, the command to rerun the chain by hand is printed instead.

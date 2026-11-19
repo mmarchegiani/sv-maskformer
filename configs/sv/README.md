@@ -12,6 +12,8 @@ simulation. The code lives in `src/sv/` (reusing `src/maskformer/`, never `src/h
 | `gv_tracks_small.yaml` | dim 64, 2 + 2 layers, torch attention, 200 train events, CPU | smoke tests of the pipeline |
 | `gv_tracks_dynamic_queries.yaml` | `gv_tracks.yaml` with hepattn's dynamic queries: a per-track `query_init` task (`maskformer.models.tasks.QuerySeedTask`, target `track_seed` = the highest-pT track of each target vertex) seeds the queries from the track embeddings, at most `num_objects`; batch size 1 | training on GPU, fewer empty query slots |
 | `gv_tracks_dynamic_queries_null0p3.yaml` | `gv_tracks_dynamic_queries.yaml` with classification `null_weight` 0.3 (was 0.1) and `query_init` `max_pos_weight` 10 (was the default 1000) | fewer fake vertices: a less vertex-biased classifier and fewer seeds |
+| `gv_tracks_mixed_ttbar.yaml` | `gv_tracks.yaml` on the mixed ttbar dataset (`TTbar_mixed_FH_DL_tracks_GenVertex_50k`: 25k fully hadronic + 25k dileptonic events, 40k/5k/5k), same scale dicts | training on GPU, both ttbar decay channels |
+| `gv_tracks_mixed_ttbar_dynamic_queries.yaml` | `gv_tracks_dynamic_queries.yaml` on the mixed ttbar dataset | the same with dynamic queries |
 
 ## The problem, mapped onto the MaskFormer
 
@@ -133,6 +135,8 @@ pure shifts/scales; the vertex dict may carry a `fn` (`log` for pT, `log1p` for 
 vertex from the Hungarian-matched query, the track assignment, the fake vertices; the writer's module doc lists
 them) and `<ckpt>__test[_<suff>]_plots/`:
 
+- `composition/`: class balance of the truth vertices (B, BtoC, C, Other) as pie charts, for the target vertices
+  (`class_balance.png`) and for those entering the efficiencies (`class_balance_ge2_tracks.png`);
 - `efficiency/`: perfect (track recall = purity = 1) and loose (both >= 0.5) vertex-finding efficiency vs lxy, pT,
   truth track multiplicity, vertices per event, per class (B, BtoC, C, Other); recall/purity;
 - `fakes/`: predicted vertices without a truth vertex, per event and vs the number of truth vertices;
