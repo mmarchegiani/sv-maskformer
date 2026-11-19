@@ -4,7 +4,7 @@ MaskFormer reconstruction of the heavy-flavour decay vertices of an event from i
 [Secondary vertex reconstruction with MaskFormers](https://link.springer.com/article/10.1140/epjc/s10052-024-13374-5)
 (Van Stroud et al., EPJC 84 (2024) 1020, [arXiv:2312.12272](https://arxiv.org/abs/2312.12272)), on CMS ttbar
 simulation. The code lives in `src/sv/` (reusing `src/maskformer/`, never `src/hgcal/`), the command is
-`maskformer-sv` (`python -m sv` without the installed package).
+`maskformer` (`python -m sv` without the installed package).
 
 | config | model | purpose |
 |---|---|---|
@@ -25,12 +25,12 @@ simulation. The code lives in `src/sv/` (reusing `src/maskformer/`, never `src/h
 | regression | hadron pT, Lxy (from the beam line), dR to the jet axis | hadron pT, eta, sin/cos phi, lxy and lz (flight distance from the generated primary vertex); also available: l3d, x, y, z |
 | decoder cross-attention | mask attention (each query attends to the tracks of its predicted mask) | the same; hepattn's local strided window (a fixed window of tracks per query over the phi-sorted tracks) is available, see below |
 | losses | 0.5 CE + 2 L1 + 12 mask BCE + 8 mask Dice, Hungarian matching | the same weights; the matching cost is the same combination |
-| evaluation | perfect / loose vertex-finding efficiency vs Lxy, fake rate, fit residuals | the same, plus the track assignment and the class confusion (`maskformer-sv plot`) |
+| evaluation | perfect / loose vertex-finding efficiency vs Lxy, fake rate, fit residuals | the same, plus the track assignment and the class confusion (`maskformer plot`) |
 
 The data and the truth definitions are documented in `src/sv/dataset/collections.py`, the feature derivations in
 `src/sv/dataset/features.py`.
 
-**Candidate vertices.** `maskformer-sv convert` keeps a `GV` vertex when (`VERTEX_SELECTION`, `DAUGHTER_SELECTION`
+**Candidate vertices.** `maskformer convert` keeps a `GV` vertex when (`VERTEX_SELECTION`, `DAUGHTER_SELECTION`
 in `collections.py`):
 
 - hadron pT > 10 GeV and |eta| < 2.5;
@@ -51,21 +51,25 @@ its tracks are background).
 
 ```bash
 # 1. ROOT ntuples -> parquet (torch-free; one record per event: track, GV, PV_x/y/z, event ids), 80/10/10 split
-maskformer-sv convert '/eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/TTto4Q_track_*.root' \
+maskformer convert '/eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/TTto4Q_track_*.root' \
     --outdir /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet --split 0.8 0.1 0.1
 
 # 2. normalization parameters of the track features and the vertex targets (params/sv_*_var_transform.yaml)
-maskformer-sv norm-par --input /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/train
+maskformer norm-par --input /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/train
 
 # 3. training
-maskformer-sv train --config configs/sv/gv_tracks.yaml
-maskformer-sv train -c configs/sv/gv_tracks_small.yaml --debug --max-epochs 1 --trainer.limit_train_batches 5   # smoke test
+maskformer train --config configs/sv/gv_tracks.yaml
+maskformer train -c configs/sv/gv_tracks_small.yaml --debug --max-epochs 1 --trainer.limit_train_batches 5   # smoke test
 condor_submit jobs/train_sv_condor.sub            # unattended on the CERN GPU batch: training + evaluation + plots on
                                                   # EOS (jobs/train_sv_condor.sh; smoke=1 flavour=longlunch to validate)
+maskformer train --config <config> --name <name> --ckpt-path <run>/ckpts/epoch=NNN-*.ckpt   # resume a stopped training
+condor_submit jobs/train_sv_condor.sub config=<config> name=<name> resume=<run>   # the same on the batch: the last epoch
+                                                  # of <run> (or resume=<file.ckpt>); <runs_root>/job_<cluster>/STATUS
+                                                  # reads KILLED, with the checkpoint to resume from, if condor stopped the job
 
 # 4. evaluation: predictions next to the best checkpoint + the plot chain
-maskformer-sv evaluate --config logs/<run>/config.yaml --test-path /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/test
-maskformer-sv plot --input <ckpt>__test_test.parquet --outdir <dir>        # the plots again, torch-free
+maskformer evaluate --config logs/<run>/config.yaml --test-path /eos/cms/store/group/phys_btag/mmarcheg/sv_reconstruction/training_datasets/TTto4Q_tracks_GenVertex_50k/parquet/test
+maskformer plot --input <ckpt>__test_test.parquet --outdir <dir>        # the plots again, torch-free
 ```
 
 Any Lightning argument can be appended to `train`/`evaluate` (`--trainer.max_epochs 5`, `--data.num_workers 0`,
@@ -121,7 +125,7 @@ dict: it works in the scaled space of the vertex dict and the prediction writer 
 The inputs are derived from the NanoAOD branches by `sv.dataset.features` (log pT, asinh-compressed impact
 parameters with the -9999 "not available" markers mapped to 0, ...) and scaled by the track dict, whose entries are
 pure shifts/scales; the vertex dict may carry a `fn` (`log` for pT, `log1p` for lxy) applied by hepattn's
-`VarTransform` so that the writer can invert it. `maskformer-sv norm-par` refits both from a converted file.
+`VarTransform` so that the writer can invert it. `maskformer norm-par` refits both from a converted file.
 
 ## Outputs of the evaluation
 
@@ -144,4 +148,4 @@ them) and `<ckpt>__test[_<suff>]_plots/`:
 
 Vertices enter the efficiencies with at least `EVAL_MIN_TRACKS = 2` selected truth tracks (the paper's evaluation
 selection, `src/sv/scripts/plot/plot_sv_eval.py`); single-track vertices are reported separately. The chain is
-`src/sv/scripts/plot/run_sv_plot_chain.py`, run by the evaluation as a subprocess and by `maskformer-sv plot`.
+`src/sv/scripts/plot/run_sv_plot_chain.py`, run by the evaluation as a subprocess and by `maskformer plot`.

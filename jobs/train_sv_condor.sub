@@ -4,6 +4,7 @@
 #   condor_submit jobs/train_sv_condor.sub smoke=1 flavour=longlunch    # 3-batch validation of the whole chain
 #   condor_submit jobs/train_sv_condor.sub name=sv_gv_tracks_v2 extra="--max-epochs 20"
 #   condor_submit jobs/train_sv_condor.sub run_dir=<runs_root>/job_<cluster>/<run> flavour=longlunch   # evaluate only
+#   condor_submit jobs/train_sv_condor.sub config=<config> name=<name> resume=<runs_root>/job_<cluster>/<run>   # resume
 # The job (jobs/train_sv_condor.sh) trains, evaluates the best checkpoint on the test split and publishes the plots
 # on the EOS web area, with the Kerberos credential condor delegates to it (MY.SendCredential). Progress:
 #   condor_q; tail -f logs/condor/<name>_<cluster>.out; cat <runs_root>/job_<cluster>/STATUS
@@ -37,9 +38,15 @@ endif
 if ! defined run_dir
   run_dir = -
 endif
+# resume=<checkpoint .ckpt, or a run folder: its last epoch>: continue a stopped training (wall time, eviction, crash)
+# from that checkpoint, with the config and name of the stopped run; the run continues in a new job_<cluster> folder.
+# STATUS of a job condor stopped reads KILLED and names the checkpoint to resume from.
+if ! defined resume
+  resume = -
+endif
 
 executable = $(repo)/jobs/train_sv_condor.sh
-arguments  = "$(repo) $(config) $(name) $(runs_root) $(www_root) $(smoke) $(ClusterId) $(run_dir) $(extra)"
+arguments  = "$(repo) $(config) $(name) $(runs_root) $(www_root) $(smoke) $(ClusterId) $(run_dir) $(resume) $(extra)"
 initialdir = $(repo)
 output     = logs/condor/$(name)_$(ClusterId).out
 error      = logs/condor/$(name)_$(ClusterId).err
