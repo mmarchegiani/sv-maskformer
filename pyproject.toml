@@ -26,7 +26,6 @@ dependencies = [
     "numpy>=1.24.0",
     "pandas>=1.17.0",
     "torch>=2.0.0",
-    "torch_geometric>=2.7.0",
     "tqdm>=4.65.0",
     "lightning>=2.0.0",
     "awkward>=2.0.0",
@@ -34,10 +33,6 @@ dependencies = [
     "pyarrow>=23.0.0",
     "matplotlib>=3.7",
     "mplhep>=0.3",
-    "pathos",
-    "vector",
-    "fastjet",
-    "energyflow",
     "click>=8.1",
 ]
 
