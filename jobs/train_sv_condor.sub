@@ -31,7 +31,7 @@ if ! defined extra
   extra =
 endif
 if ! defined flavour
-  flavour = tomorrow
+  flavour = testmatch
 endif
 # run_dir=<runs_root>/job_<cluster>/<name>_<timestamp>: skip the training and only evaluate that run (plots again)
 if ! defined run_dir
