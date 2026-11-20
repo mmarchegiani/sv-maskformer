@@ -117,7 +117,9 @@ def test_sv_configs_are_consistent(path):
     model = cfg["model"]["model"]["init_args"]
     input_net = model["input_nets"]["init_args"]["modules"][0]["init_args"]
     assert input_net["input_name"] == "track" and input_net["net"]["init_args"]["input_size"] == len(inputs)
-    assert model["decoder"]["num_queries"] == data["num_objects"]
+    decoder = model["decoder"]
+    decoder = decoder.get("init_args", decoder)  # a class_path/init_args block (decoder subclass) or plain arguments
+    assert decoder["num_queries"] == data["num_objects"]
     tasks = {t["init_args"]["name"]: t for t in model["tasks"]["init_args"]["modules"]}
     assert tasks["regression"]["init_args"]["fields"] == targets
     assert tasks["regression"]["init_args"]["net"]["init_args"]["output_size"] == len(targets)
@@ -126,10 +128,10 @@ def test_sv_configs_are_consistent(path):
     assert tasks["classification"]["init_args"]["net"]["init_args"]["output_size"] == NUM_CLASSES + 1
     assert len(tasks["classification"]["init_args"]["class_weights"]) == NUM_CLASSES
     # the decoder's cross-attention: mask attention or hepattn's local strided window, with what hepattn asserts
-    decoder = model["decoder"]
     assert decoder["mask_attention"] != bool(decoder.get("local_strided_attn", False))
     # dynamic queries (hepattn): batch size 1, a `query_init` encoder task on the track seeds, the track as source
     if decoder.get("dynamic_queries"):
+        assert model["decoder"].get("class_path") == "maskformer.models.decoder.DynamicQueryDecoder"  # short events
         assert data["batch_size"] == 1 and model["dynamic_query_source"] == "track"
         (seed,) = [t["init_args"] for t in model["encoder_tasks"]["init_args"]["modules"] if t["init_args"]["name"] == "query_init"]
         assert seed["input_object"] == "track" and seed["target_field"] == "seed" and 0 < seed["threshold"] < 1

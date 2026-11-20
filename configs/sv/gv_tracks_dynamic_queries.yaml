@@ -197,17 +197,21 @@ model:
       # track update from the queries. hepattn's alternative, a fixed window per query over the phi-sorted tracks:
       # mask_attention: false, local_strided_attn: true, window_size: 512 (even), window_wrap: true, with
       # data.batch_size: 1, data.sort_tracks_by: phi, data.pad_to_max_tracks: false.
+      # maskformer's DynamicQueryDecoder: hepattn's MaskFormerDecoder with the no-seed fallback of the dynamic queries
+      # fixed for events with fewer tracks than num_queries (hepattn 0.2.0: topk "k not in range for dimension")
       decoder:
-        num_decoder_layers: 3
-        num_queries: *num_objects   # the maximum number of queries: the most probable seeds are kept
-        mask_attention: true
-        use_query_masks: false
-        dynamic_queries: true       # queries from the seed tracks of the `query_init` encoder task
-        decoder_layer_config:
-          dim: *dim
-          hybrid_norm: true
-          attn_kwargs:
-            num_heads: 8
+        class_path: maskformer.models.decoder.DynamicQueryDecoder
+        init_args:
+          num_decoder_layers: 3
+          num_queries: *num_objects   # the maximum number of queries: the most probable seeds are kept
+          mask_attention: true
+          use_query_masks: false
+          dynamic_queries: true       # queries from the seed tracks of the `query_init` encoder task
+          decoder_layer_config:
+            dim: *dim
+            hybrid_norm: true
+            attn_kwargs:
+              num_heads: 8
 
       # the input whose embeddings seed the queries (hepattn's default is "hit")
       dynamic_query_source: track
